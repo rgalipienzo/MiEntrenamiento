@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Mi Entreno</title>
+  <meta name="description" content="Crea tus rutinas, apunta tus entrenamientos y mira tu progreso.">
+  <meta name="theme-color" content="#16a34a">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Mi Entreno">
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/icon-180.png">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <h1 id="title">Mi Entreno</h1>
+  </header>
+
+  <main id="view" class="view"></main>
+
+  <div id="rest" class="rest" hidden>
+    <div class="rest-info">
+      <span class="rest-label">Descanso</span>
+      <span id="rest-time" class="rest-time">1:30</span>
+    </div>
+    <div class="rest-actions">
+      <button class="btn small ghost" data-action="rest-add">+15 s</button>
+      <button class="btn small" data-action="rest-skip">Saltar</button>
+    </div>
+  </div>
+
+  <nav class="tabs" id="tabs">
+    <button data-tab="hoy" class="tab">
+      <svg viewBox="0 0 24 24"><path d="M6.5 6.5v11M17.5 6.5v11M3 9.5v5M21 9.5v5M6.5 12h11"/></svg>
+      <span>Entrenar</span>
+    </button>
+    <button data-tab="rutinas" class="tab">
+      <svg viewBox="0 0 24 24"><path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/></svg>
+      <span>Rutinas</span>
+    </button>
+    <button data-tab="historial" class="tab">
+      <svg viewBox="0 0 24 24"><path d="M12 7v5l3 2"/><circle cx="12" cy="12" r="9"/></svg>
+      <span>Historial</span>
+    </button>
+  </nav>
+
+  <script src="app.js"></script>
+</body>
+</html>
