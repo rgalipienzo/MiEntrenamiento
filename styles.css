@@ -223,3 +223,5 @@ label.field span { display: block; font-size: 13px; color: var(--muted); margin-
 .howto .how { font-size: 14px; color: var(--muted); }
 
 .tab span { font-size: 11px; }
+.chip-btn.small { padding: 5px 12px; font-size: 13px; }
+.chip.muted-chip { background: var(--bg); color: var(--muted); border: 1px solid var(--line); margin-left: 4px; }

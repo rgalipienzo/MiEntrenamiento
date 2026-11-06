@@ -99,6 +99,8 @@ function render() {
 
 const imgSrc = (ej) => `img/ejercicios/${ej.id}.png`;
 let libraryGroup = 'Todos';
+let libraryMaterial = 'Todo';
+const MATERIALES = ['Mancuernas', 'Peso corporal', 'Banda'];
 
 function renderLibrary() {
   title.textContent = 'Ejercicios';
@@ -107,12 +109,15 @@ function renderLibrary() {
     <div class="chips">
       ${['Todos', ...GRUPOS].map((g) => `<button class="chip-btn ${g === libraryGroup ? 'on' : ''}" data-action="lib-group" data-id="${g}">${g}</button>`).join('')}
     </div>
+    <div class="chips">
+      ${['Todo', ...MATERIALES].map((m) => `<button class="chip-btn small ${m === libraryMaterial ? 'on' : ''}" data-action="lib-material" data-id="${m}">${m === 'Todo' ? 'Cualquier material' : m}</button>`).join('')}
+    </div>
     <div class="lib-grid" id="lib-grid">
       ${EJERCICIOS.map((e) => `
-        <button class="lib-card" data-action="open-exercise" data-id="${e.id}" data-grupo="${e.grupo}" data-q="${esc(e.nombre.toLowerCase())}">
+        <button class="lib-card" data-action="open-exercise" data-id="${e.id}" data-grupo="${e.grupo}" data-material="${e.material}" data-q="${esc(e.nombre.toLowerCase())}">
           <span class="ex-img"><img src="${imgSrc(e)}" alt="" loading="lazy"></span>
           <span class="lib-name">${esc(e.nombre)}</span>
-          <span class="lib-group">${e.grupo}</span>
+          <span class="lib-group">${e.grupo} · ${e.material}</span>
         </button>`).join('')}
     </div>
     <div class="empty" id="lib-empty" hidden><p>No hay ningún ejercicio con ese nombre.</p></div>
@@ -126,7 +131,9 @@ function filterLibrary() {
   let shown = 0;
   document.querySelectorAll('.lib-card').forEach((c) => {
     const name = c.dataset.q.normalize('NFD').replace(/[̀-ͯ]/g, '');
-    const ok = (libraryGroup === 'Todos' || c.dataset.grupo === libraryGroup) && name.includes(q);
+    const ok = (libraryGroup === 'Todos' || c.dataset.grupo === libraryGroup)
+      && (libraryMaterial === 'Todo' || c.dataset.material === libraryMaterial)
+      && name.includes(q);
     c.hidden = !ok;
     if (ok) shown++;
   });
@@ -143,6 +150,7 @@ function renderExerciseDetail() {
     <div class="card">
       <div class="ex-img big"><img src="${imgSrc(e)}" alt="Dibujo de ${esc(e.nombre)}"></div>
       <span class="chip" style="margin-top:14px">${e.grupo}</span>
+      <span class="chip muted-chip">${e.material}</span>
       <h3 style="margin-top:8px">Cómo se hace</h3>
       <p class="how">${esc(e.resumen)}</p>
     </div>
@@ -447,7 +455,12 @@ document.addEventListener('click', (ev) => {
     case 'open-exercise': subview = { type: 'exercise', id }; window.scrollTo(0, 0); break;
     case 'lib-group':
       libraryGroup = id;
-      document.querySelectorAll('.chip-btn').forEach((b) => b.classList.toggle('on', b.dataset.id === id));
+      document.querySelectorAll('[data-action="lib-group"]').forEach((b) => b.classList.toggle('on', b.dataset.id === id));
+      filterLibrary();
+      return;
+    case 'lib-material':
+      libraryMaterial = id;
+      document.querySelectorAll('[data-action="lib-material"]').forEach((b) => b.classList.toggle('on', b.dataset.id === id));
       filterLibrary();
       return;
     case 'add-to-routine': {
