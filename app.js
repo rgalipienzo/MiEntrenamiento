@@ -90,9 +90,84 @@ function render() {
   if (state.active && tab === 'hoy') return renderWorkout();
   if (subview?.type === 'edit-routine') return renderRoutineEditor();
   if (subview?.type === 'session') return renderSessionDetail();
+  if (subview?.type === 'exercise') return renderExerciseDetail();
   if (tab === 'hoy') return renderHome();
   if (tab === 'rutinas') return renderRoutines();
+  if (tab === 'ejercicios') return renderLibrary();
   if (tab === 'historial') return renderHistory();
+}
+
+const imgSrc = (ej) => `img/ejercicios/${ej.id}.png`;
+let libraryGroup = 'Todos';
+
+function renderLibrary() {
+  title.textContent = 'Ejercicios';
+  view.innerHTML = `
+    <input type="text" id="lib-search" placeholder="Buscar ejercicio…" style="margin-bottom:10px">
+    <div class="chips">
+      ${['Todos', ...GRUPOS].map((g) => `<button class="chip-btn ${g === libraryGroup ? 'on' : ''}" data-action="lib-group" data-id="${g}">${g}</button>`).join('')}
+    </div>
+    <div class="lib-grid" id="lib-grid">
+      ${EJERCICIOS.map((e) => `
+        <button class="lib-card" data-action="open-exercise" data-id="${e.id}" data-grupo="${e.grupo}" data-q="${esc(e.nombre.toLowerCase())}">
+          <span class="ex-img"><img src="${imgSrc(e)}" alt="" loading="lazy"></span>
+          <span class="lib-name">${esc(e.nombre)}</span>
+          <span class="lib-group">${e.grupo}</span>
+        </button>`).join('')}
+    </div>
+    <div class="empty" id="lib-empty" hidden><p>No hay ningún ejercicio con ese nombre.</p></div>
+  `;
+  filterLibrary();
+}
+
+function filterLibrary() {
+  const q = (document.getElementById('lib-search')?.value || '').trim().toLowerCase()
+    .normalize('NFD').replace(/[̀-ͯ]/g, '');
+  let shown = 0;
+  document.querySelectorAll('.lib-card').forEach((c) => {
+    const name = c.dataset.q.normalize('NFD').replace(/[̀-ͯ]/g, '');
+    const ok = (libraryGroup === 'Todos' || c.dataset.grupo === libraryGroup) && name.includes(q);
+    c.hidden = !ok;
+    if (ok) shown++;
+  });
+  document.getElementById('lib-empty').hidden = shown > 0;
+}
+
+function renderExerciseDetail() {
+  const e = EJERCICIOS.find((x) => x.id === subview.id);
+  if (!e) { subview = null; return render(); }
+  title.textContent = e.nombre;
+  const enRutinas = state.routines.filter((r) => r.exercises.some((x) => ejercicioPorNombre(x.name)?.id === e.id));
+  view.innerHTML = `
+    <button class="btn plain back" data-action="close-sub">‹ Ejercicios</button>
+    <div class="card">
+      <div class="ex-img big"><img src="${imgSrc(e)}" alt="Dibujo de ${esc(e.nombre)}"></div>
+      <span class="chip" style="margin-top:14px">${e.grupo}</span>
+      <h3 style="margin-top:8px">Cómo se hace</h3>
+      <p class="how">${esc(e.resumen)}</p>
+    </div>
+    ${enRutinas.length ? `<div class="muted" style="margin:0 4px 12px">En tus rutinas: ${enRutinas.map((r) => esc(r.name)).join(', ')}</div>` : ''}
+    ${state.routines.length ? `
+      <div class="section-title">Añadir a una rutina</div>
+      ${state.routines.map((r) => `
+        <div class="card row between">
+          <h3 class="grow">${esc(r.name)}</h3>
+          <button class="btn small ghost" data-action="add-to-routine" data-id="${r.id}">+ Añadir</button>
+        </div>`).join('')}` : ''}
+    <button class="btn ghost block" data-action="new-routine-with">Crear rutina con este ejercicio</button>
+  `;
+}
+
+// Ficha plegable con dibujo y explicación, para el editor y el entreno.
+function howTo(name) {
+  const e = ejercicioPorNombre(name);
+  if (!e) return '';
+  return `
+    <details class="howto">
+      <summary><span class="ex-img thumb"><img src="${imgSrc(e)}" alt=""></span> ¿Cómo se hace?</summary>
+      <div class="ex-img big"><img src="${imgSrc(e)}" alt="Dibujo de ${esc(e.nombre)}"></div>
+      <p class="how">${esc(e.resumen)}</p>
+    </details>`;
 }
 
 function renderHome() {
@@ -149,9 +224,10 @@ function renderRoutineEditor() {
     ${r.exercises.map((e, i) => `
       <div class="card">
         <div class="ex-edit">
-          <input type="text" data-bind="ex-name" data-i="${i}" value="${esc(e.name)}" placeholder="Ej.: Sentadilla">
+          <input type="text" list="lista-ejercicios" data-bind="ex-name" data-i="${i}" value="${esc(e.name)}" placeholder="Escribe o elige un ejercicio">
           <button class="icon-btn" data-action="del-ex" data-i="${i}" aria-label="Quitar ejercicio">✕</button>
         </div>
+        <div data-howto="${i}">${howTo(e.name)}</div>
         <div class="ex-nums">
           <label><span>Series</span><input type="number" inputmode="numeric" min="1" data-bind="ex-sets" data-i="${i}" value="${esc(e.sets)}"></label>
           <label><span>Repeticiones</span><input type="number" inputmode="numeric" min="0" data-bind="ex-reps" data-i="${i}" value="${esc(e.reps)}"></label>
@@ -177,9 +253,10 @@ function renderWorkout() {
     ${a.exercises.map((ex, ei) => `
       <div class="card">
         <div class="ex-edit">
-          <input type="text" data-bind="w-name" data-ei="${ei}" value="${esc(ex.name)}" placeholder="Nombre del ejercicio" style="font-weight:600">
+          <input type="text" list="lista-ejercicios" data-bind="w-name" data-ei="${ei}" value="${esc(ex.name)}" placeholder="Nombre del ejercicio" style="font-weight:600">
           <button class="icon-btn" data-action="w-del-ex" data-ei="${ei}" aria-label="Quitar ejercicio">✕</button>
         </div>
+        <div data-howto-w="${ei}">${howTo(ex.name)}</div>
         ${ex.hint ? `<div class="muted" style="margin-top:6px">Última vez: ${esc(ex.hint)}</div>` : ''}
         <div class="set-head"><span>Serie</span><span>Kg</span><span>Reps</span><span></span></div>
         ${ex.sets.map((s, si) => `
@@ -367,6 +444,29 @@ document.addEventListener('click', (ev) => {
     case 'rest-add': restEnd += 15000; updateRest(); return;
     case 'rest-skip': stopRest(); return;
     case 'open-session': subview = { type: 'session', id }; break;
+    case 'open-exercise': subview = { type: 'exercise', id }; window.scrollTo(0, 0); break;
+    case 'lib-group':
+      libraryGroup = id;
+      document.querySelectorAll('.chip-btn').forEach((b) => b.classList.toggle('on', b.dataset.id === id));
+      filterLibrary();
+      return;
+    case 'add-to-routine': {
+      const ej = EJERCICIOS.find((x) => x.id === subview.id);
+      const r = state.routines.find((x) => x.id === id);
+      r.exercises.push({ name: ej.nombre, sets: 3, reps: 10, weight: '' });
+      el.textContent = '✓ Añadido';
+      el.disabled = true;
+      save();
+      return;
+    }
+    case 'new-routine-with': {
+      const ej = EJERCICIOS.find((x) => x.id === subview.id);
+      const r = { id: uid(), name: '', exercises: [{ name: ej.nombre, sets: 3, reps: 10, weight: '' }] };
+      state.routines.push(r);
+      tab = 'rutinas';
+      subview = { type: 'edit-routine', id: r.id };
+      break;
+    }
     case 'del-session':
       if (!confirm('¿Borrar este entreno del historial?')) return;
       state.sessions = state.sessions.filter((s) => s.id !== subview.id);
@@ -381,6 +481,7 @@ document.addEventListener('click', (ev) => {
 // Guardar lo que se escribe sin volver a pintar la pantalla (para no perder el foco).
 document.addEventListener('input', (ev) => {
   const el = ev.target;
+  if (el.id === 'lib-search') return filterLibrary();
   const bind = el.dataset.bind;
   if (!bind) return;
   const routine = subview?.type === 'edit-routine' ? state.routines.find((r) => r.id === subview.id) : null;
@@ -389,16 +490,25 @@ document.addEventListener('input', (ev) => {
 
   switch (bind) {
     case 'routine-name': routine.name = el.value; title.textContent = el.value || 'Nueva rutina'; break;
-    case 'ex-name': routine.exercises[i].name = el.value; break;
+    case 'ex-name':
+      routine.exercises[i].name = el.value;
+      document.querySelector(`[data-howto="${i}"]`).innerHTML = howTo(el.value);
+      break;
     case 'ex-sets': routine.exercises[i].sets = num(el.value); break;
     case 'ex-reps': routine.exercises[i].reps = num(el.value); break;
     case 'ex-weight': routine.exercises[i].weight = num(el.value); break;
-    case 'w-name': a.exercises[ei].name = el.value; break;
+    case 'w-name':
+      a.exercises[ei].name = el.value;
+      document.querySelector(`[data-howto-w="${ei}"]`).innerHTML = howTo(el.value);
+      break;
     case 'w-weight': a.exercises[ei].sets[si].weight = num(el.value); break;
     case 'w-reps': a.exercises[ei].sets[si].reps = num(el.value); break;
   }
   save();
 });
+
+document.getElementById('lista-ejercicios').innerHTML =
+  EJERCICIOS.map((e) => `<option value="${esc(e.nombre)}">${e.grupo}</option>`).join('');
 
 render();
 

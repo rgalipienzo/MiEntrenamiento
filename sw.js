@@ -1,7 +1,9 @@
 // Guarda la app para que funcione sin conexión.
 // Cambia la versión cuando actualices archivos para que los móviles reciban la nueva.
-const CACHE = 'mientreno-v1';
-const FILES = ['./', 'index.html', 'styles.css', 'app.js', 'manifest.json', 'icons/icon.svg', 'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png'];
+importScripts('ejercicios.js');
+const CACHE = 'mientreno-v2';
+const FILES = ['./', 'index.html', 'styles.css', 'app.js', 'manifest.json', 'icons/icon.svg', 'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png', 'ejercicios.js',
+  ...EJERCICIOS.map((e) => `img/ejercicios/${e.id}.png`)];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(FILES)));
