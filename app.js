@@ -78,6 +78,187 @@ function lastFor(name) {
   return null;
 }
 
+// ---------- Plan semanal ----------
+// El usuario elige qué grupos entrena cada día. Cada semana se eligen
+// ejercicios distintos de esos grupos, rotando por todos los disponibles.
+
+const DIAS = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
+const todayIdx = () => (new Date().getDay() + 6) % 7;
+const mondayOf = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate() - ((d.getDay() + 6) % 7));
+const weekNumber = () => Math.round((mondayOf(new Date()) - new Date(2024, 0, 1)) / 604800000);
+const hasPlan = () => !!state.plan && state.plan.days.some((g) => g.length);
+
+function getPlan() {
+  if (!state.plan) {
+    state.plan = { days: [[], [], [], [], [], [], []], perDay: 5, materials: [...MATERIALES], sets: 3, reps: 12, shuffles: {} };
+  }
+  return state.plan;
+}
+
+function hashStr(s) {
+  let h = 2166136261;
+  for (const c of s) { h ^= c.charCodeAt(0); h = Math.imul(h, 16777619); }
+  return h >>> 0;
+}
+
+// Baraja siempre igual para la misma semilla.
+function seededShuffle(arr, seed) {
+  let a = seed;
+  const rnd = () => {
+    a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+  const r = [...arr];
+  for (let i = r.length - 1; i > 0; i--) {
+    const j = Math.floor(rnd() * (i + 1));
+    [r[i], r[j]] = [r[j], r[i]];
+  }
+  return r;
+}
+
+function planPool(g) {
+  const p = state.plan;
+  return seededShuffle(EJERCICIOS.filter((e) => e.grupo === g && p.materials.includes(e.material)), hashStr(g));
+}
+
+// Ejercicios de cada día de la semana actual.
+function planWeek() {
+  const p = state.plan;
+  const w = weekNumber();
+  // Cuántos ejercicios de cada grupo hay que poner cada día.
+  const slots = p.days.map((groups) => {
+    const count = {};
+    const n = groups.length ? Math.max(p.perDay, groups.length) : 0;
+    for (let k = 0; k < n; k++) { const g = groups[k % groups.length]; count[g] = (count[g] || 0) + 1; }
+    return count;
+  });
+  const need = {};
+  slots.forEach((c) => Object.entries(c).forEach(([g, n]) => { need[g] = (need[g] || 0) + n; }));
+  const used = {};
+  return p.days.map((groups, d) => {
+    const salt = p.shuffles?.[`${w}-${d}`] || 0;
+    const exercises = [];
+    groups.forEach((g) => {
+      const pool = planPool(g);
+      const k = slots[d][g];
+      // Cada semana empieza donde acabó la anterior, así no se repiten.
+      const start = w * need[g] + (used[g] || 0) + salt * k;
+      used[g] = (used[g] || 0) + k;
+      for (let i = 0; i < Math.min(k, pool.length); i++) exercises.push(pool[(start + i) % pool.length]);
+    });
+    return { day: d, key: `${w}-${d}`, groups, exercises };
+  });
+}
+
+function planDone(key) {
+  return state.sessions.some((s) => s.planKey === key);
+}
+
+function startPlanDay(d) {
+  const p = state.plan;
+  const day = planWeek()[d];
+  startWorkout({
+    id: null,
+    name: `${DIAS[d]}: ${day.groups.join(', ')}`,
+    exercises: day.exercises.map((e) => ({ name: e.nombre, sets: p.sets, reps: p.reps, weight: '' })),
+  });
+  state.active.planKey = day.key;
+  save();
+}
+
+function planExList(exercises) {
+  return `<div class="plan-ex">${exercises.map((e) => `
+    <button class="plan-ex-row" data-action="open-exercise" data-id="${e.id}">
+      <span class="ex-img thumb"><img src="${imgSrc(e)}" alt=""></span>
+      <span class="grow">${esc(e.nombre)}</span>
+      <span class="muted">›</span>
+    </button>`).join('')}</div>`;
+}
+
+function renderPlanToday() {
+  const week = planWeek();
+  const t = todayIdx();
+  const today = week[t];
+  let html = `<div class="section-title">Hoy · ${DIAS[t]}</div>`;
+  if (today.groups.length) {
+    const done = planDone(today.key);
+    html += `
+      <div class="card">
+        <div class="chips" style="margin-bottom:6px">${today.groups.map((g) => `<span class="chip">${g}</span>`).join('')}${done ? '<span class="chip done-chip">✓ Hecho</span>' : ''}</div>
+        ${today.exercises.length ? planExList(today.exercises) : '<p class="muted">No hay ejercicios de estos grupos con el material que has elegido.</p>'}
+        <div class="row between" style="margin-top:12px; gap:8px">
+          <button class="btn plain small" data-action="plan-shuffle" data-d="${t}">↻ Otros ejercicios</button>
+          ${today.exercises.length ? `<button class="btn" data-action="plan-start" data-d="${t}">${done ? 'Repetir' : 'Empezar'}</button>` : ''}
+        </div>
+      </div>`;
+  } else {
+    const next = [1, 2, 3, 4, 5, 6].map((k) => (t + k) % 7).find((d) => week[d].groups.length);
+    html += `
+      <div class="card">
+        <h3>Hoy toca descanso 😌</h3>
+        ${next !== undefined ? `<div class="muted">Próximo entreno: ${DIAS[next]} (${week[next].groups.join(', ')})</div>` : ''}
+      </div>`;
+  }
+  const others = week.filter((d) => d.day !== t && d.groups.length);
+  if (others.length) {
+    html += `<div class="section-title">Esta semana</div>`;
+    html += others.map((d) => `
+      <div class="card">
+        <div class="row between">
+          <div class="grow">
+            <h3>${DIAS[d.day]}${planDone(d.key) ? ' <span class="chip done-chip">✓ Hecho</span>' : ''}</h3>
+            <div class="muted">${d.groups.join(', ')}</div>
+          </div>
+          ${d.exercises.length ? `<button class="btn small ghost" data-action="plan-start" data-d="${d.day}">Empezar</button>` : ''}
+        </div>
+        <details class="plan-more">
+          <summary>Ver ${d.exercises.length} ejercicio${d.exercises.length === 1 ? '' : 's'}</summary>
+          ${planExList(d.exercises)}
+        </details>
+      </div>`).join('');
+  }
+  html += `<button class="btn plain block" data-action="plan-edit">Cambiar mi plan semanal</button>`;
+  return html;
+}
+
+function renderPlanEditor() {
+  const p = getPlan();
+  title.textContent = 'Plan semanal';
+  view.innerHTML = `
+    <button class="btn plain back" data-action="close-sub">‹ Volver</button>
+    <p class="muted" style="margin:0 4px 14px">Marca qué quieres entrenar cada día. Cada semana te pondré ejercicios distintos de esos grupos. Si no marcas nada, ese día es de descanso.</p>
+    ${DIAS.map((name, d) => `
+      <div class="card">
+        <div class="row between"><h3>${name}</h3><span class="muted" data-rest="${d}" ${p.days[d].length ? 'hidden' : ''}>Descanso</span></div>
+        <div class="chips" style="margin:6px 0 0">
+          ${GRUPOS.map((g) => `<button class="chip-btn small ${p.days[d].includes(g) ? 'on' : ''}" data-action="plan-group" data-d="${d}" data-id="${g}">${g}</button>`).join('')}
+        </div>
+      </div>`).join('')}
+    <div class="section-title">Ajustes</div>
+    <div class="card">
+      <div class="row between">
+        <h3 class="grow" style="font-size:16px">Ejercicios por día</h3>
+        <div class="stepper">
+          <button class="icon-btn" data-action="plan-per" data-id="-1" aria-label="Menos">−</button>
+          <b id="plan-per">${p.perDay}</b>
+          <button class="icon-btn" data-action="plan-per" data-id="1" aria-label="Más">+</button>
+        </div>
+      </div>
+      <h3 style="font-size:16px; margin-top:14px">Material que tienes</h3>
+      <div class="chips" style="margin:6px 0 0">
+        ${MATERIALES.map((m) => `<button class="chip-btn small ${p.materials.includes(m) ? 'on' : ''}" data-action="plan-mat" data-id="${m}">${m}</button>`).join('')}
+      </div>
+      <div class="ex-nums" style="grid-template-columns:1fr 1fr; margin-top:14px">
+        <label><span>Series</span><input type="number" inputmode="numeric" min="1" data-bind="plan-sets" value="${esc(p.sets)}"></label>
+        <label><span>Repeticiones</span><input type="number" inputmode="numeric" min="1" data-bind="plan-reps" value="${esc(p.reps)}"></label>
+      </div>
+    </div>
+    <button class="btn block" data-action="plan-save" style="margin-top:8px">Guardar plan</button>
+  `;
+}
+
 // ---------- Vistas ----------
 
 const view = document.getElementById('view');
@@ -91,6 +272,7 @@ function render() {
   if (subview?.type === 'edit-routine') return renderRoutineEditor();
   if (subview?.type === 'session') return renderSessionDetail();
   if (subview?.type === 'exercise') return renderExerciseDetail();
+  if (subview?.type === 'plan') return renderPlanEditor();
   if (tab === 'hoy') return renderHome();
   if (tab === 'rutinas') return renderRoutines();
   if (tab === 'ejercicios') return renderLibrary();
@@ -146,7 +328,7 @@ function renderExerciseDetail() {
   title.textContent = e.nombre;
   const enRutinas = state.routines.filter((r) => r.exercises.some((x) => ejercicioPorNombre(x.name)?.id === e.id));
   view.innerHTML = `
-    <button class="btn plain back" data-action="close-sub">‹ Ejercicios</button>
+    <button class="btn plain back" data-action="close-sub">‹ ${tab === 'ejercicios' ? 'Ejercicios' : 'Volver'}</button>
     <div class="card">
       <div class="ex-img big"><img src="${imgSrc(e)}" alt="Dibujo de ${esc(e.nombre)}"></div>
       <span class="chip" style="margin-top:14px">${e.grupo}</span>
@@ -187,7 +369,13 @@ function renderHome() {
       <div class="stat"><b>${streakWeeks()}</b><span>semanas seguidas</span></div>
       <div class="stat"><b>${state.sessions.length}</b><span>en total</span></div>
     </div>
-    <div class="section-title">Empieza un entreno</div>
+    ${hasPlan() ? renderPlanToday() : `
+      <div class="card plan-promo">
+        <h3>Plan semanal</h3>
+        <p class="muted" style="margin:0 0 12px">Elige qué días entrenas y qué quieres trabajar. Cada semana te propongo ejercicios distintos.</p>
+        <button class="btn" data-action="plan-edit">Crear mi plan</button>
+      </div>`}
+    <div class="section-title">${hasPlan() ? 'Tus rutinas' : 'Empieza un entreno'}</div>
     ${routines.length ? routines.map((r) => `
       <div class="card row between">
         <div class="grow">
@@ -196,10 +384,10 @@ function renderHome() {
         </div>
         <button class="btn" data-action="start" data-id="${r.id}">Empezar</button>
       </div>`).join('') : `
-      <div class="card empty">
+      ${hasPlan() ? '' : `<div class="card empty">
         <p>Todavía no tienes rutinas.<br>Crea la primera para empezar a entrenar.</p>
         <button class="btn" data-action="new-routine">Crear rutina</button>
-      </div>`}
+      </div>`}`}
     <button class="btn ghost block" data-action="start-empty">Entreno libre</button>
   `;
 }
@@ -207,6 +395,10 @@ function renderHome() {
 function renderRoutines() {
   title.textContent = 'Rutinas';
   view.innerHTML = `
+    <div class="card" data-action="plan-edit" style="cursor:pointer">
+      <div class="row between"><h3>Plan semanal</h3><span class="muted">${hasPlan() ? 'Editar ›' : 'Crear ›'}</span></div>
+      <div class="muted">${hasPlan() ? state.plan.days.map((g, d) => g.length ? `${DIAS[d].slice(0, 3)}: ${g.join(', ')}` : '').filter(Boolean).join(' · ') : 'Ejercicios distintos cada semana según los días y grupos que elijas.'}</div>
+    </div>
     <button class="btn block" data-action="new-routine" style="margin-bottom:16px">+ Nueva rutina</button>
     ${state.routines.length ? state.routines.map((r) => `
       <div class="card" data-action="edit-routine" data-id="${r.id}" style="cursor:pointer">
@@ -360,6 +552,7 @@ function finishWorkout() {
       date: new Date(a.start).toISOString(),
       duration: Math.floor((Date.now() - a.start) / 1000),
       exercises: a.exercises.map((ex) => ({ name: ex.name, sets: ex.sets })),
+      ...(a.planKey ? { planKey: a.planKey } : {}),
     });
     state.active = null;
     tab = 'historial';
@@ -480,6 +673,41 @@ document.addEventListener('click', (ev) => {
       subview = { type: 'edit-routine', id: r.id };
       break;
     }
+    case 'plan-edit': getPlan(); subview = { type: 'plan' }; window.scrollTo(0, 0); break;
+    case 'plan-start': startPlanDay(Number(el.dataset.d)); return;
+    case 'plan-shuffle': {
+      const p = state.plan, key = `${weekNumber()}-${el.dataset.d}`;
+      // Solo guardamos los cambios de esta semana.
+      p.shuffles = Object.fromEntries(Object.entries(p.shuffles || {}).filter(([k]) => k.startsWith(`${weekNumber()}-`)));
+      p.shuffles[key] = (p.shuffles[key] || 0) + 1;
+      break;
+    }
+    case 'plan-group': {
+      const days = state.plan.days[Number(el.dataset.d)];
+      const at = days.indexOf(id);
+      if (at >= 0) days.splice(at, 1); else days.push(id);
+      days.sort((x, y) => GRUPOS.indexOf(x) - GRUPOS.indexOf(y));
+      el.classList.toggle('on', at < 0);
+      document.querySelector(`[data-rest="${el.dataset.d}"]`).hidden = days.length > 0;
+      save();
+      return;
+    }
+    case 'plan-mat': {
+      const mats = state.plan.materials;
+      const at = mats.indexOf(id);
+      if (at >= 0) { if (mats.length === 1) return; mats.splice(at, 1); } else mats.push(id);
+      el.classList.toggle('on', at < 0);
+      save();
+      return;
+    }
+    case 'plan-per': {
+      const p = state.plan;
+      p.perDay = Math.min(10, Math.max(2, p.perDay + Number(id)));
+      document.getElementById('plan-per').textContent = p.perDay;
+      save();
+      return;
+    }
+    case 'plan-save': subview = null; tab = 'hoy'; window.scrollTo(0, 0); break;
     case 'del-session':
       if (!confirm('¿Borrar este entreno del historial?')) return;
       state.sessions = state.sessions.filter((s) => s.id !== subview.id);
@@ -516,6 +744,8 @@ document.addEventListener('input', (ev) => {
       break;
     case 'w-weight': a.exercises[ei].sets[si].weight = num(el.value); break;
     case 'w-reps': a.exercises[ei].sets[si].reps = num(el.value); break;
+    case 'plan-sets': state.plan.sets = num(el.value) || 3; break;
+    case 'plan-reps': state.plan.reps = num(el.value) || 12; break;
   }
   save();
 });
