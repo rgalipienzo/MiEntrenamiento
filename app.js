@@ -345,6 +345,7 @@ function render() {
   if (subview?.type === 'exercise') return renderExerciseDetail();
   if (subview?.type === 'plan') return renderPlanEditor();
   if (subview?.type === 'plan-pick') return renderPlanPicker();
+  if (subview?.type === 'free') return renderFreeChooser();
   if (tab === 'hoy') return renderHome();
   if (tab === 'rutinas') return renderRoutines();
   if (tab === 'ejercicios') return renderLibrary();
@@ -462,6 +463,26 @@ function renderHome() {
         <button class="btn" data-action="new-routine">Crear rutina</button>
       </div>`}`}
     <button class="btn ghost block" data-action="start-empty">Entreno libre</button>
+  `;
+}
+
+// Al pulsar «Entreno libre»: elegir una rutina propia o empezar en blanco.
+function renderFreeChooser() {
+  title.textContent = 'Entreno libre';
+  const list = state.routines.filter((r) => r.exercises.length);
+  view.innerHTML = `
+    <button class="btn plain back" data-action="close-sub">‹ Volver</button>
+    <div class="section-title">Tus rutinas</div>
+    ${list.map((r) => `
+      <div class="card row between">
+        <div class="grow">
+          <h3>${esc(r.name)}</h3>
+          <div class="muted">${r.exercises.map((e) => esc(e.name)).join(' · ')}</div>
+        </div>
+        <button class="btn" data-action="start" data-id="${r.id}">Empezar</button>
+      </div>`).join('')}
+    <div class="section-title">O sin rutina</div>
+    <button class="btn ghost block" data-action="start-blank">Empezar en blanco</button>
   `;
 }
 
@@ -729,7 +750,12 @@ document.addEventListener('click', (ev) => {
       });
       return;
     case 'start': startWorkout(state.routines.find((r) => r.id === id)); return;
-    case 'start-empty': startWorkout(null); return;
+    case 'start-empty':
+      // Si tiene rutinas propias, primero le dejamos elegir.
+      if (state.routines.some((r) => r.exercises.length)) { subview = { type: 'free' }; window.scrollTo(0, 0); break; }
+      startWorkout(null);
+      return;
+    case 'start-blank': startWorkout(null); return;
     case 'toggle-set': {
       const s = a.exercises[ei].sets[si];
       s.done = !s.done;
