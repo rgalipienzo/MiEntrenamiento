@@ -141,10 +141,8 @@ function planPool(g) {
   return seededShuffle(EJERCICIOS.filter((e) => e.grupo === g && p.materials.includes(e.material)), hashStr(g));
 }
 
-// Ejercicios de cada día de una semana (por defecto, la actual).
-function planWeek(w = weekNumber()) {
-  const p = state.plan;
-  // Cuántos ejercicios de cada grupo hay que poner cada día.
+// Cuántos ejercicios de cada grupo hay que poner cada día, y en toda la semana.
+function planSlots(p) {
   const slots = p.days.map((groups) => {
     const count = {};
     const n = groups.length ? Math.max(p.perDay, groups.length) : 0;
@@ -153,6 +151,34 @@ function planWeek(w = weekNumber()) {
   });
   const need = {};
   slots.forEach((c) => Object.entries(c).forEach(([g, n]) => { need[g] = (need[g] || 0) + n; }));
+  return { slots, need };
+}
+
+// Grupos con pocos ejercicios para no repetir de una semana a la siguiente.
+function updatePlanWarn() {
+  const box = document.getElementById('plan-warn');
+  if (!box) return;
+  const p = state.plan;
+  const { need } = planSlots(p);
+  const short = Object.entries(need).map(([g, n]) => {
+    const have = EJERCICIOS.filter((e) => e.grupo === g && p.materials.includes(e.material)).length;
+    return { g, n, have };
+  }).filter((x) => x.n * 2 > x.have);
+  box.innerHTML = short.length ? `
+    <div class="card warn-card">
+      <h3 style="font-size:16px">Se repetirán algunos ejercicios</h3>
+      <p class="muted" style="margin:0">Para que una semana no repita nada de la anterior hacen falta el doble de ejercicios de los que pides. Con este plan no llega en:</p>
+      <ul class="muted" style="margin:6px 0 0; padding-left:18px">
+        ${short.map((x) => `<li><b>${x.g}</b>: pides ${x.n} a la semana y hay ${x.have}</li>`).join('')}
+      </ul>
+      <p class="muted" style="margin:6px 0 0">Puedes bajar los ejercicios por día, marcar más material o poner ese grupo en menos días.</p>
+    </div>` : '';
+}
+
+// Ejercicios de cada día de una semana (por defecto, la actual).
+function planWeek(w = weekNumber()) {
+  const p = state.plan;
+  const { slots, need } = planSlots(p);
   const used = {};
   return p.days.map((groups, d) => {
     const salt = p.shuffles?.[`${w}-${d}`] || 0;
@@ -465,8 +491,10 @@ function renderPlanEditor() {
         <label><span>Repeticiones</span><input type="number" inputmode="numeric" min="1" data-bind="plan-reps" value="${esc(p.reps)}"></label>
       </div>
     </div>
+    <div id="plan-warn"></div>
     <button class="btn block" data-action="plan-save" style="margin-top:8px">Guardar plan</button>
   `;
+  updatePlanWarn();
 }
 
 // ---------- Vistas ----------
@@ -978,6 +1006,7 @@ document.addEventListener('click', (ev) => {
       days.sort((x, y) => GRUPOS.indexOf(x) - GRUPOS.indexOf(y));
       el.classList.toggle('on', at < 0);
       document.querySelector(`[data-rest="${el.dataset.d}"]`).hidden = days.length > 0;
+      updatePlanWarn();
       save();
       return;
     }
@@ -986,6 +1015,7 @@ document.addEventListener('click', (ev) => {
       const at = mats.indexOf(id);
       if (at >= 0) { if (mats.length === 1) return; mats.splice(at, 1); } else mats.push(id);
       el.classList.toggle('on', at < 0);
+      updatePlanWarn();
       save();
       return;
     }
@@ -993,6 +1023,7 @@ document.addEventListener('click', (ev) => {
       const p = state.plan;
       p.perDay = Math.min(10, Math.max(2, p.perDay + Number(id)));
       document.getElementById('plan-per').textContent = p.perDay;
+      updatePlanWarn();
       save();
       return;
     }
