@@ -462,27 +462,31 @@ function renderHome() {
         <p>Todavía no tienes rutinas.<br>Crea la primera para empezar a entrenar.</p>
         <button class="btn" data-action="new-routine">Crear rutina</button>
       </div>`}`}
-    <button class="btn ghost block" data-action="start-empty">Entreno libre</button>
+    <button class="btn ghost block" data-action="start-empty">Otras rutinas</button>
   `;
 }
 
-// Al pulsar «Entreno libre»: elegir una rutina propia o empezar en blanco.
+// Al pulsar «Otras rutinas»: elegir una de las rutinas creadas en la pestaña Rutinas.
 function renderFreeChooser() {
-  title.textContent = 'Entreno libre';
-  const list = state.routines.filter((r) => r.exercises.length);
+  title.textContent = 'Otras rutinas';
+  const list = state.routines;
   view.innerHTML = `
     <button class="btn plain back" data-action="close-sub">‹ Volver</button>
     <div class="section-title">Tus rutinas</div>
+    ${list.length ? '' : `
+      <div class="card empty">
+        <p>Todavía no has creado ninguna rutina.<br>Créala en la pestaña Rutinas y aparecerá aquí.</p>
+        <button class="btn" data-action="new-routine">Crear rutina</button>
+      </div>`}
     ${list.map((r) => `
       <div class="card row between">
         <div class="grow">
           <h3>${esc(r.name)}</h3>
-          <div class="muted">${r.exercises.map((e) => esc(e.name)).join(' · ')}</div>
+          <div class="muted">${r.exercises.map((e) => esc(e.name)).join(' · ') || 'Sin ejercicios todavía'}</div>
         </div>
         <button class="btn" data-action="start" data-id="${r.id}">Empezar</button>
       </div>`).join('')}
-    <div class="section-title">O sin rutina</div>
-    <button class="btn ghost block" data-action="start-blank">Empezar en blanco</button>
+    <button class="btn plain block" data-action="start-blank" style="margin-top:8px">Entrenar sin rutina</button>
   `;
 }
 
@@ -501,7 +505,7 @@ function renderRoutines() {
           <span class="muted">Editar ›</span>
         </div>
         <div class="muted">${r.exercises.map((e) => esc(e.name)).join(' · ') || 'Sin ejercicios'}</div>
-        ${r.exercises.length ? `<button class="btn small" data-action="start" data-id="${r.id}" style="margin-top:10px">Empezar</button>` : ''}
+        <button class="btn small" data-action="start" data-id="${r.id}" style="margin-top:10px">Empezar</button>
       </div>`).join('') : `<div class="empty"><p>Aquí verás tus rutinas.<br>Por ejemplo: «Pierna», «Torso» o «Cardio en casa».</p></div>`}
   `;
 }
@@ -750,11 +754,7 @@ document.addEventListener('click', (ev) => {
       });
       return;
     case 'start': startWorkout(state.routines.find((r) => r.id === id)); return;
-    case 'start-empty':
-      // Si tiene rutinas propias, primero le dejamos elegir.
-      if (state.routines.some((r) => r.exercises.length)) { subview = { type: 'free' }; window.scrollTo(0, 0); break; }
-      startWorkout(null);
-      return;
+    case 'start-empty': subview = { type: 'free' }; window.scrollTo(0, 0); break;
     case 'start-blank': startWorkout(null); return;
     case 'toggle-set': {
       const s = a.exercises[ei].sets[si];
