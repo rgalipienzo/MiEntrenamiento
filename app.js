@@ -136,10 +136,7 @@ function seededShuffle(arr, seed) {
   return r;
 }
 
-function planPool(g) {
-  const p = state.plan;
-  return seededShuffle(EJERCICIOS.filter((e) => e.grupo === g && p.materials.includes(e.material)), hashStr(g));
-}
+const poolOf = (g) => EJERCICIOS.filter((e) => e.grupo === g && state.plan.materials.includes(e.material));
 
 // Cuántos ejercicios de cada grupo hay que poner cada día, y en toda la semana.
 function planSlots(p) {
@@ -175,22 +172,98 @@ function updatePlanWarn() {
     </div>` : '';
 }
 
+// ---- Cómo se eligen los ejercicios de cada semana ----
+// Se calculan las semanas una tras otra (desde enero de 2024). Cada semana:
+//  - no repite ningún ejercicio de la semana anterior,
+//  - no repite ejercicio entre días,
+//  - intenta no poner dos ejercicios de la misma familia (p. ej. dos sentadillas),
+//  - y mezcla el orden de los grupos en cada día.
+// Cada grupo saca sus ejercicios de una «bolsa» barajada, así van saliendo todos.
+let weekCache = null;
+
+function getWeekCache() {
+  const p = state.plan;
+  const sig = JSON.stringify([p.days, p.perDay, p.materials]);
+  if (!weekCache || weekCache.sig !== sig) {
+    const pools = Object.fromEntries(GRUPOS.map((g) => [g, poolOf(g)]));
+    const bags = Object.fromEntries(GRUPOS.map((g) => [g, seededShuffle(pools[g], hashStr(g))]));
+    weekCache = { sig, pools, bags, refills: {}, weeks: [] };
+  }
+  return weekCache;
+}
+
+// Grupos de cada hueco del día, intercalados y en un orden distinto cada semana.
+function daySlotGroups(groups, w, d) {
+  if (!groups.length) return [];
+  const n = Math.max(state.plan.perDay, groups.length);
+  const order = seededShuffle(groups, hashStr(`orden-${w}-${d}`));
+  return Array.from({ length: n }, (_, k) => order[k % order.length]);
+}
+
+function drawFrom(c, g, ok) {
+  const pool = c.pools[g];
+  if (!pool.length) return null;
+  const bag = c.bags[g];
+  let idx = bag.findIndex(ok);
+  if (idx < 0 && bag.length < pool.length * 2) {
+    c.refills[g] = (c.refills[g] || 0) + 1;
+    bag.push(...seededShuffle(pool, hashStr(g) + 7919 * c.refills[g]));
+    idx = bag.findIndex(ok);
+  }
+  return idx < 0 ? null : bag.splice(idx, 1)[0];
+}
+
+// Elige un ejercicio del grupo probando primero con todas las reglas y luego relajándolas.
+function pickOne(g, used, fams, block, draw) {
+  const tries = [
+    (e) => !used.has(e.id) && !block.has(e.id) && !fams.has(e.familia),
+    (e) => !used.has(e.id) && !block.has(e.id),
+    (e) => !used.has(e.id),
+  ];
+  for (const t of tries) { const e = draw(g, t); if (e) return e; }
+  return null;
+}
+
+function computeWeek(c, j) {
+  const p = state.plan;
+  const prev = new Set((c.weeks[j - 1] || []).flat().map((e) => e.id));
+  const used = new Set(), fams = new Set();
+  return p.days.map((groups, d) => {
+    const out = [];
+    for (const g of daySlotGroups(groups, j, d)) {
+      const e = pickOne(g, used, fams, prev, (gg, ok) => drawFrom(c, gg, ok));
+      if (e) { out.push(e); used.add(e.id); fams.add(e.familia); }
+    }
+    return out;
+  });
+}
+
 // Ejercicios de cada día de una semana (por defecto, la actual).
 function planWeek(w = weekNumber()) {
   const p = state.plan;
-  const { slots, need } = planSlots(p);
-  const used = {};
+  const c = getWeekCache();
+  while (c.weeks.length <= w + 1) c.weeks.push(computeWeek(c, c.weeks.length));
+  const base = c.weeks[w];
   return p.days.map((groups, d) => {
+    let exercises = base[d];
+    // «Otros ejercicios»: vuelve a elegir ese día sin chocar con el resto.
     const salt = p.shuffles?.[`${w}-${d}`] || 0;
-    let exercises = [];
-    groups.forEach((g) => {
-      const pool = planPool(g);
-      const k = slots[d][g];
-      // Cada semana empieza donde acabó la anterior, así no se repiten.
-      const start = w * need[g] + (used[g] || 0) + salt * k;
-      used[g] = (used[g] || 0) + k;
-      for (let i = 0; i < Math.min(k, pool.length); i++) exercises.push(pool[(start + i) % pool.length]);
-    });
+    if (salt && groups.length) {
+      const others = base.filter((_, i) => i !== d).flat();
+      const block = new Set([...(c.weeks[w - 1] || []).flat(), ...(c.weeks[w + 1] || []).flat(), ...base[d]].map((e) => e.id));
+      const used = new Set(others.map((e) => e.id));
+      const fams = new Set(others.map((e) => e.familia));
+      const lists = {};
+      exercises = [];
+      for (const g of daySlotGroups(groups, w, d)) {
+        lists[g] = lists[g] || seededShuffle(c.pools[g], hashStr(`otros-${w}-${d}-${salt}`));
+        const e = pickOne(g, used, fams, block, (gg, ok) => {
+          const i = lists[gg].findIndex(ok);
+          return i < 0 ? null : lists[gg].splice(i, 1)[0];
+        });
+        if (e) { exercises.push(e); used.add(e.id); fams.add(e.familia); }
+      }
+    }
     // Si el usuario ha cambiado o quitado ejercicios de este día, manda su lista.
     const custom = p.custom?.[`${w}-${d}`];
     if (custom && custom.sig === groups.join('|')) {

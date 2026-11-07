@@ -196,3 +196,28 @@ const ejercicioPorNombre = (nombre) => {
   const n = String(nombre || '').trim().toLowerCase();
   return EJERCICIOS.find((e) => e.nombre.toLowerCase() === n) || null;
 };
+
+// Familias de ejercicios muy parecidos. En una misma semana el plan
+// intenta no repetir familia, para que los días no se parezcan.
+const FAMILIAS = {
+  sentadilla: ['sentadilla', 'sentadilla-goblet', 'sentadilla-sumo', 'sentadilla-talones', 'sentadilla-salto', 'sentadilla-pared', 'postura-silla', 'postura-caballo', 'thruster'],
+  zancada: ['zancada', 'zancada-inversa', 'zancada-salto', 'sentadilla-split', 'subida-banco', 'zancada-inversa-curl'],
+  bisagra: ['peso-muerto', 'peso-muerto-rumano', 'buenos-dias', 'rumano-apoyo-remo'],
+  plancha: ['plancha', 'plancha-alta', 'plancha-toques-hombro', 'plancha-lateral', 'plancha-jacks', 'escaladores', 'paso-oso'],
+  puente: ['puente-gluteo', 'puente-gluteo-suelo', 'puente-press'],
+  crunch: ['crunch', 'abdominales', 'v-up', 'postura-barco', 'hollow-body'],
+  giro: ['giro-ruso', 'lenador', 'flexion-lateral'],
+  remo: ['remo-un-brazo', 'remo-apoyado', 'remo-inclinado', 'remo-renegado', 'remo-sentado-banda', 'remo-escapular'],
+  pressPecho: ['press-banca', 'press-suelo', 'press-inclinado', 'press-martillo', 'flexiones'],
+  pressHombro: ['press-hombros', 'press-arnold', 'press-empuje'],
+  elevHombro: ['elevaciones-laterales', 'elevaciones-frontales'],
+  posterior: ['pajaros', 'pajaros-banco', 'elevacion-t', 'elevacion-y', 'elevacion-w', 'separaciones-banda'],
+  curl: ['curl-biceps', 'curl-martillo'],
+  triceps: ['extension-triceps', 'fondos-triceps', 'patada-triceps'],
+  gluteoBanda: ['abduccion-pie', 'almeja', 'paso-lateral-banda', 'fire-hydrant', 'elevacion-lateral-pierna'],
+  patadaGluteo: ['patada-burro', 'patada-gluteo-pie'],
+  salto: ['burpees', 'rodillas-altas'],
+};
+EJERCICIOS.forEach((e) => {
+  e.familia = Object.keys(FAMILIAS).find((f) => FAMILIAS[f].includes(e.id)) || e.id;
+});
