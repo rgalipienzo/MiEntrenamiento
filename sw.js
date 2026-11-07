@@ -1,8 +1,8 @@
 // Guarda la app para que funcione sin conexión.
 // Cambia la versión aquí y el ?v= de index.html cuando actualices archivos.
 importScripts('ejercicios.js');
-const CACHE = 'mientreno-v19';
-const FILES = ['./', 'index.html', 'styles.css?v=19', 'app.js?v=19', 'ejercicios.js?v=19', 'config.js?v=19', 'manifest.json', 'icons/icon.svg', 'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png', 'ejercicios.js',
+const CACHE = 'mientreno-v20';
+const FILES = ['./', 'index.html', 'styles.css?v=20', 'app.js?v=20', 'ejercicios.js?v=20', 'config.js?v=20', 'manifest.json', 'icons/icon.svg', 'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png', 'ejercicios.js',
   ...EJERCICIOS.map((e) => `img/ejercicios/${e.id}.png`)];
 
 self.addEventListener('install', (e) => {

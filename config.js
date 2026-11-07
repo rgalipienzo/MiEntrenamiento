@@ -3,6 +3,6 @@
 // la hacen las reglas de la base de datos (cada usuario solo ve lo suyo).
 // Si se dejan vacías, la app funciona sin cuentas, guardando en el teléfono.
 window.MIENTRENO_CONFIG = {
-  supabaseUrl: '',
-  supabaseKey: '',
+  supabaseUrl: 'https://zydzfditgovnkeadcsaj.supabase.co',
+  supabaseKey: 'sb_publishable_jEQoH6TI2Sw9HawuYPZFgw_vKsVcBST',
 };
