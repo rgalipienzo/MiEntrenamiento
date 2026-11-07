@@ -15,7 +15,10 @@ let restEnd = 0;
 function load() {
   try {
     const data = JSON.parse(localStorage.getItem(STORE_KEY));
-    if (data && Array.isArray(data.routines)) return data;
+    if (data && Array.isArray(data.routines)) {
+      if (data.plan && !data.plan.created) data.plan.created = Date.now();
+      return data;
+    }
   } catch (e) { /* datos vacíos o dañados */ }
   return { routines: [], sessions: [], active: null };
 }
@@ -86,13 +89,27 @@ function lastFor(name) {
 const DIAS = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
 const todayIdx = () => (new Date().getDay() + 6) % 7;
 const mondayOf = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate() - ((d.getDay() + 6) % 7));
-const weekNumber = () => Math.round((mondayOf(new Date()) - new Date(2024, 0, 1)) / 604800000);
+const weekOf = (date) => Math.round((mondayOf(date) - new Date(2024, 0, 1)) / 604800000);
+const weekNumber = () => weekOf(new Date());
+const dateOf = (w, d) => new Date(2024, 0, 1 + w * 7 + d);
+let weekOffset = 0; // semana que se ve en Entrenar (0 = esta, -1 = la anterior…)
+const viewWeek = () => weekNumber() + weekOffset;
+
+function weekLabel(w) {
+  const a = dateOf(w, 0), b = dateOf(w, 6);
+  const m = (x) => x.toLocaleDateString('es-ES', { month: 'long' });
+  const y = b.getFullYear() !== new Date().getFullYear() ? ` de ${b.getFullYear()}` : '';
+  return a.getMonth() === b.getMonth()
+    ? `Semana del ${a.getDate()} al ${b.getDate()} de ${m(b)}${y}`
+    : `Semana del ${a.getDate()} de ${m(a)} al ${b.getDate()} de ${m(b)}${y}`;
+}
 const hasPlan = () => !!state.plan && state.plan.days.some((g) => g.length);
 
 function getPlan() {
   if (!state.plan) {
-    state.plan = { days: [[], [], [], [], [], [], []], perDay: 5, materials: [...MATERIALES], sets: 3, reps: 12, shuffles: {} };
+    state.plan = { days: [[], [], [], [], [], [], []], perDay: 5, materials: [...MATERIALES], sets: 3, reps: 12, shuffles: {}, created: Date.now() };
   }
+  if (!state.plan.created) state.plan.created = Date.now();
   return state.plan;
 }
 
@@ -124,10 +141,9 @@ function planPool(g) {
   return seededShuffle(EJERCICIOS.filter((e) => e.grupo === g && p.materials.includes(e.material)), hashStr(g));
 }
 
-// Ejercicios de cada día de la semana actual.
-function planWeek() {
+// Ejercicios de cada día de una semana (por defecto, la actual).
+function planWeek(w = weekNumber()) {
   const p = state.plan;
-  const w = weekNumber();
   // Cuántos ejercicios de cada grupo hay que poner cada día.
   const slots = p.days.map((groups) => {
     const count = {};
@@ -158,24 +174,24 @@ function planWeek() {
   });
 }
 
-// Solo guardamos los cambios de la semana actual.
+// Solo guardamos los cambios de esta semana y de las siguientes.
 function pruneWeekly(p) {
-  const pre = `${weekNumber()}-`;
+  const now = weekNumber();
   for (const k of ['shuffles', 'custom']) {
-    p[k] = Object.fromEntries(Object.entries(p[k] || {}).filter(([x]) => x.startsWith(pre)));
+    p[k] = Object.fromEntries(Object.entries(p[k] || {}).filter(([x]) => Number(x.split('-')[0]) >= now));
   }
 }
 
-function setDayExercises(d, ids) {
+function setDayExercises(w, d, ids) {
   const p = state.plan;
   pruneWeekly(p);
-  p.custom[`${weekNumber()}-${d}`] = { sig: p.days[d].join('|'), ids };
+  p.custom[`${w}-${d}`] = { sig: p.days[d].join('|'), ids };
 }
 
 // Pantalla para elegir un ejercicio nuevo (para cambiar uno o añadirlo).
 function renderPlanPicker() {
-  const { d, i } = subview;
-  const day = planWeek()[d];
+  const { d, i, w } = subview;
+  const day = planWeek(w)[d];
   const current = day.exercises[i];
   const taken = new Set(day.exercises.map((e) => e.id));
   title.textContent = current ? 'Cambiar ejercicio' : 'Añadir ejercicio';
@@ -214,26 +230,126 @@ function startPlanDay(d) {
   save();
 }
 
-function planExList(exercises, d) {
+function planExList(exercises, d, w = weekNumber()) {
   return `<div class="plan-ex">${exercises.map((e, i) => `
     <div class="plan-ex-row">
       <button class="plan-ex-open" data-action="open-exercise" data-id="${e.id}">
         <span class="ex-img thumb"><img src="${imgSrc(e)}" alt=""></span>
         <span class="grow">${esc(e.nombre)}</span>
       </button>
-      <button class="icon-btn small-icon" data-action="plan-swap" data-d="${d}" data-i="${i}" aria-label="Cambiar ${esc(e.nombre)}">⇄</button>
-      <button class="icon-btn small-icon" data-action="plan-remove" data-d="${d}" data-i="${i}" aria-label="Quitar ${esc(e.nombre)}">✕</button>
+      <button class="icon-btn small-icon" data-action="plan-swap" data-w="${w}" data-d="${d}" data-i="${i}" aria-label="Cambiar ${esc(e.nombre)}">⇄</button>
+      <button class="icon-btn small-icon" data-action="plan-remove" data-w="${w}" data-d="${d}" data-i="${i}" aria-label="Quitar ${esc(e.nombre)}">✕</button>
     </div>`).join('')}</div>
-    <button class="btn plain small" data-action="plan-add" data-d="${d}">+ Añadir ejercicio</button>`;
+    <button class="btn plain small" data-action="plan-add" data-w="${w}" data-d="${d}">+ Añadir ejercicio</button>`;
+}
+
+// Lista sin botones (para semanas pasadas). items: [{ name, right }]
+function readOnlyList(items) {
+  return `<div class="plan-ex">${items.map((it) => {
+    const ej = ejercicioPorNombre(it.name);
+    return `
+    <div class="plan-ex-row">
+      ${ej ? `<button class="plan-ex-open" data-action="open-exercise" data-id="${ej.id}">
+        <span class="ex-img thumb"><img src="${imgSrc(ej)}" alt=""></span>
+        <span class="grow">${esc(it.name)}</span>
+      </button>` : `<span class="plan-ex-open"><span class="grow">${esc(it.name || 'Ejercicio')}</span></span>`}
+      ${it.right ? `<span class="muted" style="flex:none">${esc(it.right)}</span>` : ''}
+    </div>`;
+  }).join('')}</div>`;
+}
+
+const dayTitle = (w, d) => `${DIAS[d]} ${dateOf(w, d).getDate()}`;
+
+function weekNav() {
+  const w = viewWeek();
+  const sub = weekOffset === 0 ? 'Esta semana'
+    : weekOffset === -1 ? 'Semana pasada'
+    : weekOffset === 1 ? 'Semana que viene'
+    : weekOffset < 0 ? `Hace ${-weekOffset} semanas` : `Dentro de ${weekOffset} semanas`;
+  return `
+    <div class="week-nav">
+      <button class="icon-btn week-arrow" data-action="week-move" data-id="-1" aria-label="Semana anterior">‹</button>
+      <div class="week-label">
+        <b>${weekLabel(w)}</b>
+        ${weekOffset === 0 ? `<span class="muted">${sub}</span>` : `<button class="btn plain small" data-action="week-today">${sub} · Volver a hoy</button>`}
+      </div>
+      <button class="icon-btn week-arrow" data-action="week-move" data-id="1" aria-label="Semana siguiente">›</button>
+    </div>`;
+}
+
+// Semana pasada: lo que tocaba y lo que hiciste.
+function renderPastWeek(w) {
+  const created = weekOf(new Date(state.plan.created || Date.now()));
+  const sessions = state.sessions.filter((s) => weekOf(new Date(s.date)) === w);
+  let html = '';
+  if (w >= created) {
+    const week = planWeek(w).filter((d) => d.groups.length);
+    html += `<div class="section-title">Tu plan</div>`;
+    html += week.map((d) => {
+      const s = sessions.find((x) => x.planKey === d.key);
+      const items = s
+        ? s.exercises.filter((ex) => ex.sets.some((x) => x.done)).map((ex) => {
+          const n = ex.sets.filter((x) => x.done).length;
+          return { name: ex.name, right: `${n} serie${n === 1 ? '' : 's'}` };
+        })
+        : d.exercises.map((e) => ({ name: e.nombre }));
+      return `
+      <div class="card">
+        <div class="row between">
+          <div class="grow">
+            <h3>${dayTitle(w, d.day)} ${s ? '<span class="chip done-chip">✓ Hecho</span>' : '<span class="chip muted-chip">No hecho</span>'}</h3>
+            <div class="muted">${d.groups.join(', ')}</div>
+          </div>
+        </div>
+        ${items.length ? `
+        <details class="plan-more" data-open-key="w${w}d${d.day}" ${openDays.has(`w${w}d${d.day}`) ? 'open' : ''}>
+          <summary>${s ? 'Ver lo que hiciste' : `Ver ${items.length} ejercicio${items.length === 1 ? '' : 's'}`}</summary>
+          ${readOnlyList(items)}
+        </details>` : ''}
+      </div>`;
+    }).join('');
+  } else {
+    html += `<div class="card"><p class="muted" style="margin:0">Esta semana todavía no tenías el plan semanal.</p></div>`;
+  }
+  // Entrenos de esa semana que no son de un día del plan (rutinas, sin rutina…).
+  const others = sessions.filter((s) => w < created || !String(s.planKey || '').startsWith(`${w}-`));
+  if (others.length) {
+    html += `<div class="section-title">Otros entrenos</div>`;
+    html += others.map((s) => `
+      <div class="card" data-action="open-session" data-id="${s.id}" style="cursor:pointer">
+        <div class="row between"><h3>${esc(s.name)}</h3><span class="muted">›</span></div>
+        <div class="muted">${fmtDate(s.date)} · ${Math.max(1, Math.round(s.duration / 60))} min</div>
+      </div>`).join('');
+  }
+  return html;
+}
+
+// Semana que viene: se puede ver y cambiar, pero no empezar todavía.
+function renderFutureWeek(w) {
+  const week = planWeek(w).filter((d) => d.groups.length);
+  return `<div class="section-title">Tu plan</div>` + week.map((d) => `
+    <div class="card">
+      <h3>${dayTitle(w, d.day)}</h3>
+      <div class="muted">${d.groups.join(', ')}</div>
+      <details class="plan-more" data-open-key="w${w}d${d.day}" ${openDays.has(`w${w}d${d.day}`) ? 'open' : ''}>
+        <summary>Ver ${d.exercises.length} ejercicio${d.exercises.length === 1 ? '' : 's'}</summary>
+        ${planExList(d.exercises, d.day, w)}
+      </details>
+    </div>`).join('');
 }
 
 const openDays = new Set(); // tarjetas desplegadas («d0» = lunes, «r…» = rutina)
 
 function renderPlanToday() {
+  const vw = viewWeek();
+  if (weekOffset !== 0) {
+    return weekNav() + (weekOffset < 0 ? renderPastWeek(vw) : renderFutureWeek(vw))
+      + `<button class="btn plain block" data-action="plan-edit">Cambiar mi plan semanal</button>` + renderOtherRoutines();
+  }
   const week = planWeek();
   const t = todayIdx();
   const today = week[t];
-  let html = `<div class="section-title">Hoy · ${DIAS[t]}</div>`;
+  let html = weekNav() + `<div class="section-title">Hoy · ${dayTitle(vw, t)}</div>`;
   if (today.groups.length) {
     const done = planDone(today.key);
     html += `
@@ -261,7 +377,7 @@ function renderPlanToday() {
       <div class="card">
         <div class="row between">
           <div class="grow">
-            <h3>${DIAS[d.day]}${planDone(d.key) ? ' <span class="chip done-chip">✓ Hecho</span>' : ''}</h3>
+            <h3>${dayTitle(vw, d.day)}${planDone(d.key) ? ' <span class="chip done-chip">✓ Hecho</span>' : ''}</h3>
             <div class="muted">${d.groups.join(', ')}</div>
           </div>
           ${d.exercises.length ? `<button class="btn small ghost" data-action="plan-start" data-d="${d.day}">Empezar</button>` : ''}
@@ -833,20 +949,22 @@ document.addEventListener('click', (ev) => {
       delete p.custom[key];
       break;
     }
-    case 'plan-swap': subview = { type: 'plan-pick', d: Number(el.dataset.d), i }; homeScroll = window.scrollY; window.scrollTo(0, 0); break;
-    case 'plan-add': subview = { type: 'plan-pick', d: Number(el.dataset.d), i: -1 }; homeScroll = window.scrollY; window.scrollTo(0, 0); break;
+    case 'plan-swap': subview = { type: 'plan-pick', w: Number(el.dataset.w), d: Number(el.dataset.d), i }; homeScroll = window.scrollY; window.scrollTo(0, 0); break;
+    case 'plan-add': subview = { type: 'plan-pick', w: Number(el.dataset.w), d: Number(el.dataset.d), i: -1 }; homeScroll = window.scrollY; window.scrollTo(0, 0); break;
     case 'plan-remove': {
-      const d = Number(el.dataset.d);
-      const ids = planWeek()[d].exercises.map((e) => e.id);
+      const w = Number(el.dataset.w), d = Number(el.dataset.d);
+      const ids = planWeek(w)[d].exercises.map((e) => e.id);
       ids.splice(i, 1);
-      setDayExercises(d, ids);
+      setDayExercises(w, d, ids);
       break;
     }
+    case 'week-move': weekOffset += Number(id); break;
+    case 'week-today': weekOffset = 0; break;
     case 'plan-pick': {
-      const { d, i: at } = subview;
-      const ids = planWeek()[d].exercises.map((e) => e.id);
+      const { w, d, i: at } = subview;
+      const ids = planWeek(w)[d].exercises.map((e) => e.id);
       if (at >= 0) ids[at] = id; else ids.push(id);
-      setDayExercises(d, ids);
+      setDayExercises(w, d, ids);
       subview = null;
       save();
       render();
