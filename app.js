@@ -375,7 +375,8 @@ function renderHome() {
         <p class="muted" style="margin:0 0 12px">Elige qué días entrenas y qué quieres trabajar. Cada semana te propongo ejercicios distintos.</p>
         <button class="btn" data-action="plan-edit">Crear mi plan</button>
       </div>`}
-    <div class="section-title">${hasPlan() ? 'Tus rutinas' : 'Empieza un entreno'}</div>
+    ${hasPlan() ? '' : `
+    <div class="section-title">Empieza un entreno</div>
     ${routines.length ? routines.map((r) => `
       <div class="card row between">
         <div class="grow">
@@ -384,7 +385,7 @@ function renderHome() {
         </div>
         <button class="btn" data-action="start" data-id="${r.id}">Empezar</button>
       </div>`).join('') : `
-      ${hasPlan() ? '' : `<div class="card empty">
+      <div class="card empty">
         <p>Todavía no tienes rutinas.<br>Crea la primera para empezar a entrenar.</p>
         <button class="btn" data-action="new-routine">Crear rutina</button>
       </div>`}`}
@@ -407,6 +408,7 @@ function renderRoutines() {
           <span class="muted">Editar ›</span>
         </div>
         <div class="muted">${r.exercises.map((e) => esc(e.name)).join(' · ') || 'Sin ejercicios'}</div>
+        ${r.exercises.length ? `<button class="btn small" data-action="start" data-id="${r.id}" style="margin-top:10px">Empezar</button>` : ''}
       </div>`).join('') : `<div class="empty"><p>Aquí verás tus rutinas.<br>Por ejemplo: «Pierna», «Torso» o «Cardio en casa».</p></div>`}
   `;
 }
