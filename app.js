@@ -7,6 +7,7 @@ const state = load();
 let tab = 'hoy';
 let subview = null; // { type: 'edit-routine', id } | { type: 'session', id }
 let tick = null;
+let homeScroll = 0;
 let restEnd = 0;
 
 // ---------- Datos ----------
@@ -139,7 +140,7 @@ function planWeek() {
   const used = {};
   return p.days.map((groups, d) => {
     const salt = p.shuffles?.[`${w}-${d}`] || 0;
-    const exercises = [];
+    let exercises = [];
     groups.forEach((g) => {
       const pool = planPool(g);
       const k = slots[d][g];
@@ -148,8 +149,53 @@ function planWeek() {
       used[g] = (used[g] || 0) + k;
       for (let i = 0; i < Math.min(k, pool.length); i++) exercises.push(pool[(start + i) % pool.length]);
     });
+    // Si el usuario ha cambiado o quitado ejercicios de este día, manda su lista.
+    const custom = p.custom?.[`${w}-${d}`];
+    if (custom && custom.sig === groups.join('|')) {
+      exercises = custom.ids.map((id) => EJERCICIOS.find((e) => e.id === id)).filter(Boolean);
+    }
     return { day: d, key: `${w}-${d}`, groups, exercises };
   });
+}
+
+// Solo guardamos los cambios de la semana actual.
+function pruneWeekly(p) {
+  const pre = `${weekNumber()}-`;
+  for (const k of ['shuffles', 'custom']) {
+    p[k] = Object.fromEntries(Object.entries(p[k] || {}).filter(([x]) => x.startsWith(pre)));
+  }
+}
+
+function setDayExercises(d, ids) {
+  const p = state.plan;
+  pruneWeekly(p);
+  p.custom[`${weekNumber()}-${d}`] = { sig: p.days[d].join('|'), ids };
+}
+
+// Pantalla para elegir un ejercicio nuevo (para cambiar uno o añadirlo).
+function renderPlanPicker() {
+  const { d, i } = subview;
+  const day = planWeek()[d];
+  const current = day.exercises[i];
+  const taken = new Set(day.exercises.map((e) => e.id));
+  title.textContent = current ? 'Cambiar ejercicio' : 'Añadir ejercicio';
+  // Primero el grupo del ejercicio que se cambia.
+  const groups = current ? [current.grupo, ...day.groups.filter((g) => g !== current.grupo)] : day.groups;
+  view.innerHTML = `
+    <button class="btn plain back" data-action="close-sub">‹ Volver</button>
+    <p class="muted" style="margin:0 4px 12px">${current ? `Elige por cuál quieres cambiar <b>${esc(current.nombre)}</b> el ${DIAS[d].toLowerCase()}.` : `Elige qué ejercicio añadir el ${DIAS[d].toLowerCase()}.`}</p>
+    ${groups.map((g) => {
+      const list = EJERCICIOS.filter((e) => e.grupo === g && state.plan.materials.includes(e.material) && !taken.has(e.id));
+      return `
+        <div class="section-title">${g}</div>
+        ${list.length ? `<div class="lib-grid">${list.map((e) => `
+          <button class="lib-card" data-action="plan-pick" data-id="${e.id}">
+            <span class="ex-img"><img src="${imgSrc(e)}" alt="" loading="lazy"></span>
+            <span class="lib-name">${esc(e.nombre)}</span>
+            <span class="lib-group">${e.material}</span>
+          </button>`).join('')}</div>` : '<p class="muted" style="margin:0 4px">Ya están todos puestos.</p>'}`;
+    }).join('')}
+  `;
 }
 
 function planDone(key) {
@@ -168,14 +214,20 @@ function startPlanDay(d) {
   save();
 }
 
-function planExList(exercises) {
-  return `<div class="plan-ex">${exercises.map((e) => `
-    <button class="plan-ex-row" data-action="open-exercise" data-id="${e.id}">
-      <span class="ex-img thumb"><img src="${imgSrc(e)}" alt=""></span>
-      <span class="grow">${esc(e.nombre)}</span>
-      <span class="muted">›</span>
-    </button>`).join('')}</div>`;
+function planExList(exercises, d) {
+  return `<div class="plan-ex">${exercises.map((e, i) => `
+    <div class="plan-ex-row">
+      <button class="plan-ex-open" data-action="open-exercise" data-id="${e.id}">
+        <span class="ex-img thumb"><img src="${imgSrc(e)}" alt=""></span>
+        <span class="grow">${esc(e.nombre)}</span>
+      </button>
+      <button class="icon-btn small-icon" data-action="plan-swap" data-d="${d}" data-i="${i}" aria-label="Cambiar ${esc(e.nombre)}">⇄</button>
+      <button class="icon-btn small-icon" data-action="plan-remove" data-d="${d}" data-i="${i}" aria-label="Quitar ${esc(e.nombre)}">✕</button>
+    </div>`).join('')}</div>
+    <button class="btn plain small" data-action="plan-add" data-d="${d}">+ Añadir ejercicio</button>`;
 }
+
+const openDays = new Set(); // días de «Esta semana» desplegados
 
 function renderPlanToday() {
   const week = planWeek();
@@ -187,7 +239,8 @@ function renderPlanToday() {
     html += `
       <div class="card">
         <div class="chips" style="margin-bottom:6px">${today.groups.map((g) => `<span class="chip">${g}</span>`).join('')}${done ? '<span class="chip done-chip">✓ Hecho</span>' : ''}</div>
-        ${today.exercises.length ? planExList(today.exercises) : '<p class="muted">No hay ejercicios de estos grupos con el material que has elegido.</p>'}
+        ${today.exercises.length ? '' : '<p class="muted">No hay ejercicios para hoy. Añade alguno o pulsa «Otros ejercicios».</p>'}
+        ${planExList(today.exercises, t)}
         <div class="row between" style="margin-top:12px; gap:8px">
           <button class="btn plain small" data-action="plan-shuffle" data-d="${t}">↻ Otros ejercicios</button>
           ${today.exercises.length ? `<button class="btn" data-action="plan-start" data-d="${t}">${done ? 'Repetir' : 'Empezar'}</button>` : ''}
@@ -213,9 +266,9 @@ function renderPlanToday() {
           </div>
           ${d.exercises.length ? `<button class="btn small ghost" data-action="plan-start" data-d="${d.day}">Empezar</button>` : ''}
         </div>
-        <details class="plan-more">
+        <details class="plan-more" data-day="${d.day}" ${openDays.has(d.day) ? 'open' : ''}>
           <summary>Ver ${d.exercises.length} ejercicio${d.exercises.length === 1 ? '' : 's'}</summary>
-          ${planExList(d.exercises)}
+          ${planExList(d.exercises, d.day)}
         </details>
       </div>`).join('');
   }
@@ -291,6 +344,7 @@ function render() {
   if (subview?.type === 'session') return renderSessionDetail();
   if (subview?.type === 'exercise') return renderExerciseDetail();
   if (subview?.type === 'plan') return renderPlanEditor();
+  if (subview?.type === 'plan-pick') return renderPlanPicker();
   if (tab === 'hoy') return renderHome();
   if (tab === 'rutinas') return renderRoutines();
   if (tab === 'ejercicios') return renderLibrary();
@@ -733,10 +787,30 @@ document.addEventListener('click', (ev) => {
     case 'plan-start': startPlanDay(Number(el.dataset.d)); return;
     case 'plan-shuffle': {
       const p = state.plan, key = `${weekNumber()}-${el.dataset.d}`;
-      // Solo guardamos los cambios de esta semana.
-      p.shuffles = Object.fromEntries(Object.entries(p.shuffles || {}).filter(([k]) => k.startsWith(`${weekNumber()}-`)));
+      pruneWeekly(p);
       p.shuffles[key] = (p.shuffles[key] || 0) + 1;
+      delete p.custom[key];
       break;
+    }
+    case 'plan-swap': subview = { type: 'plan-pick', d: Number(el.dataset.d), i }; homeScroll = window.scrollY; window.scrollTo(0, 0); break;
+    case 'plan-add': subview = { type: 'plan-pick', d: Number(el.dataset.d), i: -1 }; homeScroll = window.scrollY; window.scrollTo(0, 0); break;
+    case 'plan-remove': {
+      const d = Number(el.dataset.d);
+      const ids = planWeek()[d].exercises.map((e) => e.id);
+      ids.splice(i, 1);
+      setDayExercises(d, ids);
+      break;
+    }
+    case 'plan-pick': {
+      const { d, i: at } = subview;
+      const ids = planWeek()[d].exercises.map((e) => e.id);
+      if (at >= 0) ids[at] = id; else ids.push(id);
+      setDayExercises(d, ids);
+      subview = null;
+      save();
+      render();
+      window.scrollTo(0, homeScroll);
+      return;
     }
     case 'plan-group': {
       const days = state.plan.days[Number(el.dataset.d)];
@@ -775,6 +849,12 @@ document.addEventListener('click', (ev) => {
   save();
   render();
 });
+
+document.addEventListener('toggle', (ev) => {
+  const day = ev.target.dataset?.day;
+  if (day === undefined) return;
+  if (ev.target.open) openDays.add(Number(day)); else openDays.delete(Number(day));
+}, true);
 
 // Guardar lo que se escribe sin volver a pintar la pantalla (para no perder el foco).
 document.addEventListener('input', (ev) => {
