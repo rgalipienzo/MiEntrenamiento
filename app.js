@@ -1,9 +1,13 @@
-// Mi Entreno — todo se guarda en este dispositivo (localStorage).
+// Mi Entreno.
+// Con cuentas (Supabase configurado en config.js): cada usuario entra con su
+// correo y sus datos se guardan en internet, solo visibles para él. Además se
+// guarda una copia en el teléfono para poder entrenar sin conexión.
+// Sin configurar: todo se guarda solo en este dispositivo, como al principio.
 
 const STORE_KEY = 'mientreno:v1';
 const REST_SECONDS = 90;
 
-const state = load();
+let state = emptyState();
 let tab = 'hoy';
 let subview = null; // { type: 'edit-routine', id } | { type: 'session', id }
 let tick = null;
@@ -12,20 +16,264 @@ let restEnd = 0;
 
 // ---------- Datos ----------
 
-function load() {
-  try {
-    const data = JSON.parse(localStorage.getItem(STORE_KEY));
-    if (data && Array.isArray(data.routines)) {
-      if (data.plan && !data.plan.created) data.plan.created = Date.now();
-      return data;
-    }
-  } catch (e) { /* datos vacíos o dañados */ }
+function emptyState() {
   return { routines: [], sessions: [], active: null };
 }
 
-function save() {
-  try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch (e) { /* sin espacio */ }
+function normalize(data) {
+  if (!data || !Array.isArray(data.routines)) return null;
+  if (!Array.isArray(data.sessions)) data.sessions = [];
+  if (data.active === undefined) data.active = null;
+  if (data.plan && !data.plan.created) data.plan.created = Date.now();
+  return data;
 }
+
+function readJSON(key) {
+  try { return JSON.parse(localStorage.getItem(key)); } catch (e) { return null; }
+}
+
+// Datos del modo sin cuentas.
+function load() {
+  return normalize(readJSON(STORE_KEY)) || emptyState();
+}
+
+// ---------- Cuentas y guardado en internet ----------
+
+let sb = null;          // cliente de Supabase (null = sin cuentas)
+let user = null;        // usuario que ha entrado
+let syncStatus = 'ok';  // 'ok' | 'pending' | 'offline'
+let pushTimer = null;
+let recovering = false; // viene del enlace de «he olvidado la contraseña»
+let authMode = 'login';
+let authMsg = null;     // { text, kind: 'error' | 'ok' }
+const APP_URL = location.origin + location.pathname;
+const userKey = () => `mientreno:u:${user.id}`;
+
+function save() {
+  if (sb && !user) return;
+  try {
+    if (user) localStorage.setItem(userKey(), JSON.stringify({ state, pending: true }));
+    else localStorage.setItem(STORE_KEY, JSON.stringify(state));
+  } catch (e) { /* sin espacio */ }
+  if (user) {
+    syncStatus = 'pending';
+    clearTimeout(pushTimer);
+    pushTimer = setTimeout(pushNow, 1200);
+  }
+}
+
+async function pushNow() {
+  clearTimeout(pushTimer);
+  pushTimer = null;
+  if (!sb || !user) return;
+  const u = user;
+  const { error } = await sb.from('datos_usuario').upsert({
+    user_id: u.id, datos: state, actualizado: new Date().toISOString(),
+  });
+  if (error) { syncStatus = 'offline'; return; }
+  // Si ha habido cambios mientras se enviaba, queda otro envío pendiente.
+  if (!pushTimer && user && user.id === u.id) {
+    syncStatus = 'ok';
+    try { localStorage.setItem(userKey(), JSON.stringify({ state, pending: false })); } catch (e) { /* */ }
+  }
+}
+
+async function loadUserData() {
+  const cached = readJSON(userKey());
+  const cachedState = normalize(cached?.state);
+  // Cambios hechos sin conexión que aún no se habían enviado: mandan ellos.
+  if (cached?.pending && cachedState) {
+    state = cachedState;
+    pushNow();
+    return;
+  }
+  try {
+    const { data, error } = await sb.from('datos_usuario').select('datos').eq('user_id', user.id).maybeSingle();
+    if (error) throw error;
+    if (data) {
+      state = normalize(data.datos) || emptyState();
+    } else {
+      // Cuenta nueva. Si este teléfono tenía datos de antes de las cuentas,
+      // se pasan a esta cuenta (solo una vez, para que otra cuenta empiece vacía).
+      const old = normalize(readJSON(STORE_KEY));
+      state = old || emptyState();
+      if (old) {
+        localStorage.setItem(STORE_KEY + ':pasado-a-cuenta', localStorage.getItem(STORE_KEY));
+        localStorage.removeItem(STORE_KEY);
+      }
+      await pushNow();
+    }
+    syncStatus = 'ok';
+    localStorage.setItem(userKey(), JSON.stringify({ state, pending: false }));
+  } catch (e) {
+    state = cachedState || emptyState();
+    syncStatus = 'offline';
+  }
+}
+
+async function signedIn(u) {
+  user = u;
+  weekCache = null;
+  await loadUserData();
+}
+
+async function logout() {
+  if (pushTimer || syncStatus !== 'ok') await pushNow();
+  if (syncStatus !== 'ok' && !(await ask('Hay cambios que todavía no se han guardado en internet (no hay conexión). Si sales ahora, se quedan en este teléfono hasta que vuelvas a entrar. ¿Salir igualmente?', 'Salir'))) return;
+  await sb.auth.signOut();
+  user = null;
+  state = emptyState();
+  weekCache = null;
+  tab = 'hoy';
+  subview = null;
+  authMode = 'login';
+  authMsg = null;
+  stopRest();
+  render();
+}
+
+function authErrorText(error) {
+  const m = String(error?.message || '').toLowerCase();
+  if (m.includes('invalid login')) return 'Correo o contraseña incorrectos.';
+  if (m.includes('not confirmed')) return 'Primero confirma tu correo: te enviamos un enlace al crear la cuenta.';
+  if (m.includes('already registered') || m.includes('already been registered')) return 'Ya existe una cuenta con ese correo. Entra con ella.';
+  if (m.includes('password') && m.includes('6')) return 'La contraseña debe tener al menos 6 caracteres.';
+  if (m.includes('rate limit') || m.includes('too many')) return 'Demasiados intentos. Espera un poco y vuelve a probar.';
+  if (m.includes('fetch') || m.includes('network')) return 'No hay conexión a internet.';
+  return 'No se ha podido completar. ' + (error?.message || '');
+}
+
+function renderAuth() {
+  title.textContent = 'Mi Entreno';
+  const login = authMode === 'login';
+  view.innerHTML = `
+    <div class="auth-box">
+      <img src="icons/icon-192.png" class="auth-logo" alt="">
+      <div class="card">
+        ${recovering ? `
+          <h3>Nueva contraseña</h3>
+          <form id="auth-form" data-mode="recover">
+            <label class="field"><span>Contraseña nueva</span><input type="password" id="auth-pass" autocomplete="new-password" minlength="6" required></label>
+            <button class="btn block" type="submit">Guardar contraseña</button>
+          </form>` : `
+          <div class="auth-tabs">
+            <button class="chip-btn ${login ? 'on' : ''}" data-action="auth-mode" data-id="login">Entrar</button>
+            <button class="chip-btn ${login ? '' : 'on'}" data-action="auth-mode" data-id="signup">Crear cuenta</button>
+          </div>
+          <form id="auth-form" data-mode="${authMode}">
+            <label class="field"><span>Correo</span><input type="email" id="auth-email" autocomplete="email" required></label>
+            <label class="field"><span>Contraseña</span><input type="password" id="auth-pass" autocomplete="${login ? 'current-password' : 'new-password'}" minlength="6" required placeholder="${login ? '' : 'Mínimo 6 caracteres'}"></label>
+            <button class="btn block" type="submit">${login ? 'Entrar' : 'Crear cuenta'}</button>
+          </form>
+          ${login ? '<button class="btn plain small" data-action="auth-forgot" style="margin-top:8px">¿Has olvidado la contraseña?</button>' : ''}`}
+        <p class="auth-msg ${authMsg?.kind || ''}" id="auth-msg">${authMsg ? esc(authMsg.text) : ''}</p>
+      </div>
+      <p class="sync-note">Tus entrenamientos se guardan en tu cuenta y solo los ves tú.</p>
+    </div>`;
+}
+
+function setAuthMsg(text, kind) {
+  authMsg = text ? { text, kind } : null;
+  const el = document.getElementById('auth-msg');
+  if (el) { el.textContent = text || ''; el.className = `auth-msg ${kind || ''}`; }
+}
+
+document.addEventListener('submit', async (ev) => {
+  if (ev.target.id !== 'auth-form') return;
+  ev.preventDefault();
+  const mode = ev.target.dataset.mode;
+  const email = document.getElementById('auth-email')?.value.trim();
+  const password = document.getElementById('auth-pass').value;
+  const btn = ev.target.querySelector('button[type="submit"]');
+  btn.disabled = true;
+  setAuthMsg('Un momento…', '');
+  try {
+    if (mode === 'recover') {
+      const { error } = await sb.auth.updateUser({ password });
+      if (error) return setAuthMsg(authErrorText(error), 'error');
+      recovering = false;
+      authMsg = null;
+      const { data } = await sb.auth.getUser();
+      if (data.user) await signedIn(data.user);
+      history.replaceState(null, '', APP_URL);
+      return render();
+    }
+    const { data, error } = mode === 'login'
+      ? await sb.auth.signInWithPassword({ email, password })
+      : await sb.auth.signUp({ email, password, options: { emailRedirectTo: APP_URL } });
+    if (error) return setAuthMsg(authErrorText(error), 'error');
+    if (!data.session) {
+      authMode = 'login';
+      authMsg = { text: `Te hemos enviado un correo a ${email}. Ábrelo y pulsa el enlace para confirmar la cuenta; después entra aquí.`, kind: 'ok' };
+      return render();
+    }
+    authMsg = null;
+    await signedIn(data.session.user);
+    tab = 'hoy';
+    subview = null;
+    render();
+  } catch (e) {
+    setAuthMsg(authErrorText(e), 'error');
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+function renderAccount() {
+  title.textContent = 'Cuenta';
+  const status = { ok: 'Todo guardado en internet', pending: 'Guardando…', offline: 'Sin conexión: se guardará en cuanto vuelva internet' }[syncStatus];
+  view.innerHTML = `
+    <button class="btn plain back" data-action="close-sub">‹ Volver</button>
+    ${user ? `
+      <div class="card">
+        <div class="muted">Has entrado como</div>
+        <h3 style="word-break:break-all">${esc(user.email)}</h3>
+        <div class="muted">Cuenta creada el ${new Date(user.created_at).toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' })}</div>
+      </div>
+      <div class="card">
+        <div class="muted">Tus datos</div>
+        <h3 style="font-size:16px">${status}</h3>
+        <div class="muted">${state.sessions.length} entreno${state.sessions.length === 1 ? '' : 's'} · ${state.routines.length} rutina${state.routines.length === 1 ? '' : 's'}${hasPlan() ? ' · plan semanal' : ''}</div>
+        <p class="muted" style="margin:8px 0 0">Solo tú puedes ver tus entrenamientos. Entra con el mismo correo en otro teléfono o en el ordenador y tendrás todo igual.</p>
+      </div>
+      <button class="btn danger block" data-action="logout">Cerrar sesión</button>` : `
+      <div class="card">
+        <h3>Sin cuenta</h3>
+        <p class="muted" style="margin:0">Ahora mismo tus datos se guardan solo en este teléfono. Las cuentas aún no están activadas en la app.</p>
+      </div>`}
+  `;
+}
+
+function toggleMenu(open) {
+  const menu = document.getElementById('menu');
+  const show = open ?? menu.hidden;
+  menu.hidden = !show;
+  document.getElementById('menu-btn').setAttribute('aria-expanded', String(show));
+  if (show) {
+    document.getElementById('menu-who').textContent = user ? user.email : (sb ? '' : 'Sin cuenta · solo en este teléfono');
+    document.getElementById('menu-logout').hidden = !user;
+  }
+}
+
+async function boot() {
+  const cfg = window.MIENTRENO_CONFIG || {};
+  if (cfg.supabaseUrl && cfg.supabaseKey && window.supabase) {
+    sb = window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseKey);
+    view.innerHTML = '<div class="empty"><p>Cargando…</p></div>';
+    sb.auth.onAuthStateChange((event) => {
+      if (event === 'PASSWORD_RECOVERY') { recovering = true; setTimeout(render, 0); }
+    });
+    const { data } = await sb.auth.getSession();
+    if (data.session && !recovering) await signedIn(data.session.user);
+  } else {
+    state = load();
+  }
+  render();
+}
+
+// Enviar lo pendiente al cerrar la app o al volver la conexión.
+document.addEventListener('visibilitychange', () => { if (document.hidden && pushTimer) pushNow(); });
+window.addEventListener('online', () => { if (user && syncStatus !== 'ok') pushNow(); });
 
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -593,7 +841,12 @@ function tidyRoutines() {
 }
 
 function render() {
+  const needLogin = !!sb && (!user || recovering);
+  document.body.classList.toggle('auth', needLogin);
+  toggleMenu(false);
+  if (needLogin) return renderAuth();
   tidyRoutines();
+  if (subview?.type === 'account') return renderAccount();
   document.querySelectorAll('.tab').forEach((b) => b.classList.toggle('active', b.dataset.tab === tab));
   clearInterval(tick);
 
@@ -956,8 +1209,29 @@ document.addEventListener('click', (ev) => {
   if (tabBtn) { tab = tabBtn.dataset.tab; subview = null; render(); window.scrollTo(0, 0); return; }
 
   const el = ev.target.closest('[data-action]');
+  // Cerrar el menú al tocar fuera.
+  if (!document.getElementById('menu').hidden && !ev.target.closest('#menu, #menu-btn')) toggleMenu(false);
   if (!el) return;
   const { action, id } = el.dataset;
+  // Menú, cuenta y pantalla de entrar.
+  switch (action) {
+    case 'menu': toggleMenu(); return;
+    case 'account': subview = { type: 'account' }; render(); window.scrollTo(0, 0); return;
+    case 'logout':
+      toggleMenu(false);
+      ask('¿Cerrar sesión? Tus datos quedan guardados en tu cuenta.', 'Cerrar sesión').then((ok) => { if (ok) logout(); });
+      return;
+    case 'auth-mode': authMode = id; authMsg = null; render(); return;
+    case 'auth-forgot': {
+      const email = document.getElementById('auth-email').value.trim();
+      if (!email) { setAuthMsg('Escribe tu correo arriba y vuelve a pulsar.', 'error'); return; }
+      setAuthMsg('Un momento…', '');
+      sb.auth.resetPasswordForEmail(email, { redirectTo: APP_URL }).then(({ error }) => {
+        setAuthMsg(error ? authErrorText(error) : `Te hemos enviado un correo a ${email} para poner una contraseña nueva.`, error ? 'error' : 'ok');
+      });
+      return;
+    }
+  }
   const ei = Number(el.dataset.ei), i = Number(el.dataset.i), si = Number(el.dataset.si);
   const routine = subview?.type === 'edit-routine' ? state.routines.find((r) => r.id === subview.id) : null;
   const a = state.active;
@@ -1153,7 +1427,7 @@ document.addEventListener('input', (ev) => {
 document.getElementById('lista-ejercicios').innerHTML =
   EJERCICIOS.map((e) => `<option value="${esc(e.nombre)}">${e.grupo}</option>`).join('');
 
-render();
+boot();
 
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
   navigator.serviceWorker.register('sw.js').catch(() => {});

@@ -124,7 +124,7 @@ html, body {
 .icon-btn { border: 0; background: none; color: var(--muted); font-size: 20px; padding: 6px 8px; cursor: pointer; border-radius: 8px; }
 
 /* Forms */
-input[type="text"], input[type="number"] {
+input[type="text"], input[type="number"], input[type="email"], input[type="password"] {
   width: 100%;
   font: inherit;
   color: var(--text);
@@ -253,3 +253,27 @@ label.field span { display: block; font-size: 13px; color: var(--muted); margin-
 .week-label .btn.plain.small { padding: 0; font-size: 13px; }
 .icon-btn.week-arrow { font-size: 28px; line-height: 1; width: 44px; height: 44px; padding: 0 0 4px; color: var(--accent); flex: none; }
 .warn-card { border-color: #f59e0b; background: color-mix(in srgb, #f59e0b 10%, var(--card)); }
+
+/* Menú de arriba a la derecha */
+.topbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.topbar h1 { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.menu-btn { flex: none; width: 42px; height: 42px; border: 1px solid var(--line); background: var(--card); color: var(--text); border-radius: 12px; display: grid; place-items: center; cursor: pointer; padding: 0; }
+.menu-btn svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
+.menu { position: absolute; right: 16px; top: calc(100% - 4px); z-index: 30; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: 0 12px 32px rgba(0,0,0,0.18); min-width: 220px; padding: 6px; }
+.menu[hidden] { display: none; }
+.menu-who { font-size: 13px; color: var(--muted); padding: 8px 10px 6px; border-bottom: 1px solid var(--line); margin-bottom: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.menu-who:empty { display: none; }
+.menu-item { display: block; width: 100%; text-align: left; border: 0; background: none; color: var(--text); font: inherit; font-size: 16px; padding: 10px; border-radius: 8px; cursor: pointer; }
+.menu-item:hover { background: var(--accent-soft); }
+.menu-item.danger { color: var(--danger); }
+.menu-item[hidden] { display: none; }
+
+/* Entrar / crear cuenta */
+body.auth .tabs, body.auth .menu-btn { display: none; }
+.auth-box { max-width: 400px; margin: 24px auto 0; }
+.auth-logo { width: 72px; height: 72px; border-radius: 18px; display: block; margin: 0 auto 12px; }
+.auth-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 14px; }
+.auth-msg { font-size: 14px; margin: 8px 0 0; }
+.auth-msg.error { color: var(--danger); }
+.auth-msg.ok { color: var(--accent); }
+.sync-note { font-size: 12px; color: var(--muted); text-align: center; margin-top: 16px; }

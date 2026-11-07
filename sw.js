@@ -1,8 +1,8 @@
 // Guarda la app para que funcione sin conexión.
 // Cambia la versión aquí y el ?v= de index.html cuando actualices archivos.
 importScripts('ejercicios.js');
-const CACHE = 'mientreno-v18';
-const FILES = ['./', 'index.html', 'styles.css?v=18', 'app.js?v=18', 'ejercicios.js?v=18', 'manifest.json', 'icons/icon.svg', 'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png', 'ejercicios.js',
+const CACHE = 'mientreno-v19';
+const FILES = ['./', 'index.html', 'styles.css?v=19', 'app.js?v=19', 'ejercicios.js?v=19', 'config.js?v=19', 'manifest.json', 'icons/icon.svg', 'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png', 'ejercicios.js',
   ...EJERCICIOS.map((e) => `img/ejercicios/${e.id}.png`)];
 
 self.addEventListener('install', (e) => {
@@ -18,6 +18,9 @@ self.addEventListener('activate', (e) => {
 // Primero intenta la red (para tener siempre lo último); si no hay conexión, usa lo guardado.
 self.addEventListener('fetch', (e) => {
   if (e.request.method !== 'GET') return;
+  // Los datos de las cuentas (Supabase) no se guardan aquí: van siempre directos.
+  const url = new URL(e.request.url);
+  if (url.origin !== self.location.origin && url.hostname !== 'cdn.jsdelivr.net') return;
   e.respondWith(
     // «no-cache»: pregunta siempre al servidor si hay versión nueva.
     fetch(e.request, { cache: 'no-cache' })
