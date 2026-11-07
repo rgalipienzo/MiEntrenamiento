@@ -264,7 +264,25 @@ function renderPlanEditor() {
 const view = document.getElementById('view');
 const title = document.getElementById('title');
 
+// Al salir del editor (con Guardar o tocando otra pestaña), quita los
+// ejercicios en blanco y borra las rutinas que se quedaron vacías.
+function tidyRoutines() {
+  const editing = subview?.type === 'edit-routine' ? subview.id : null;
+  let changed = false;
+  state.routines = state.routines.filter((r) => {
+    if (r.id === editing) return true;
+    const before = r.exercises.length;
+    r.exercises = r.exercises.filter((e) => String(e.name).trim());
+    if (r.exercises.length !== before) changed = true;
+    if (!r.exercises.length && !r.name.trim()) { changed = true; return false; }
+    if (!r.name.trim()) { r.name = 'Rutina sin nombre'; changed = true; }
+    return true;
+  });
+  if (changed) save();
+}
+
 function render() {
+  tidyRoutines();
   document.querySelectorAll('.tab').forEach((b) => b.classList.toggle('active', b.dataset.tab === tab));
   clearInterval(tick);
 
