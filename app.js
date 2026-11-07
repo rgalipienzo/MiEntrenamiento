@@ -271,7 +271,7 @@ function weekNav() {
       <button class="icon-btn week-arrow" data-action="week-move" data-id="-1" aria-label="Semana anterior">‹</button>
       <div class="week-label">
         <b>${weekLabel(w)}</b>
-        ${weekOffset === 0 ? `<span class="muted">${sub}</span>` : `<button class="btn plain small" data-action="week-today">${sub} · Volver a hoy</button>`}
+        ${weekOffset === 0 ? '' : `<button class="btn plain small" data-action="week-today">${sub} · Volver a hoy</button>`}
       </div>
       <button class="icon-btn week-arrow" data-action="week-move" data-id="1" aria-label="Semana siguiente">›</button>
     </div>`;
@@ -349,7 +349,7 @@ function renderPlanToday() {
   const week = planWeek();
   const t = todayIdx();
   const today = week[t];
-  let html = weekNav() + `<div class="section-title">Hoy · ${dayTitle(vw, t)}</div>`;
+  let html = weekNav() + '<div style="height:12px"></div>';
   if (today.groups.length) {
     const done = planDone(today.key);
     html += `
