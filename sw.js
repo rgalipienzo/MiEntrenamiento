@@ -1,8 +1,8 @@
 // Guarda la app para que funcione sin conexión.
-// Cambia la versión cuando actualices archivos para que los móviles reciban la nueva.
+// Cambia la versión aquí y el ?v= de index.html cuando actualices archivos.
 importScripts('ejercicios.js');
-const CACHE = 'mientreno-v9';
-const FILES = ['./', 'index.html', 'styles.css', 'app.js', 'manifest.json', 'icons/icon.svg', 'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png', 'ejercicios.js',
+const CACHE = 'mientreno-v10';
+const FILES = ['./', 'index.html', 'styles.css?v=10', 'app.js?v=10', 'ejercicios.js?v=10', 'manifest.json', 'icons/icon.svg', 'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png', 'ejercicios.js',
   ...EJERCICIOS.map((e) => `img/ejercicios/${e.id}.png`)];
 
 self.addEventListener('install', (e) => {
@@ -22,6 +22,6 @@ self.addEventListener('fetch', (e) => {
     // «no-cache»: pregunta siempre al servidor si hay versión nueva.
     fetch(e.request, { cache: 'no-cache' })
       .then((res) => { const copy = res.clone(); caches.open(CACHE).then((c) => c.put(e.request, copy)); return res; })
-      .catch(() => caches.match(e.request).then((r) => r || caches.match('index.html')))
+      .catch(() => caches.match(e.request, { ignoreSearch: true }).then((r) => r || caches.match('index.html')))
   );
 });

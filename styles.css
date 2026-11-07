@@ -229,7 +229,7 @@ label.field span { display: block; font-size: 13px; color: var(--muted); margin-
 .plan-ex { display: flex; flex-direction: column; }
 .plan-ex-row { display: flex; align-items: center; gap: 2px; padding: 4px 0; border-top: 1px solid var(--line); }
 .plan-ex-open { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; padding: 2px 0; border: 0; background: none; color: var(--text); font: inherit; font-size: 15px; text-align: left; cursor: pointer; }
-.icon-btn.small-icon { font-size: 17px; width: 38px; height: 38px; padding: 0; flex: none; }
+.icon-btn.small-icon { font-size: 17px; width: 38px; height: 38px; padding: 0; flex: none; margin-left: auto; }
 .plan-ex-row:first-child { border-top: 0; }
 .plan-more { margin-top: 8px; }
 .plan-more summary { color: var(--accent); font-size: 14px; cursor: pointer; padding: 4px 0; }
