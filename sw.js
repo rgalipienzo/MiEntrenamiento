@@ -1,7 +1,7 @@
 // Guarda la app para que funcione sin conexión.
 // Cambia la versión cuando actualices archivos para que los móviles reciban la nueva.
 importScripts('ejercicios.js');
-const CACHE = 'mientreno-v5';
+const CACHE = 'mientreno-v6';
 const FILES = ['./', 'index.html', 'styles.css', 'app.js', 'manifest.json', 'icons/icon.svg', 'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png', 'ejercicios.js',
   ...EJERCICIOS.map((e) => `img/ejercicios/${e.id}.png`)];
 

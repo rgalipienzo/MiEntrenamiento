@@ -517,6 +517,40 @@ function renderSessionDetail() {
 
 // ---------- Acciones ----------
 
+// Ventana de confirmación propia: en el iPhone, con la app instalada,
+// el aviso del sistema (confirm) a veces no aparece y el botón no hace nada.
+function ask(message, okLabel = 'Sí') {
+  return new Promise((resolve) => {
+    const m = document.createElement('div');
+    m.className = 'modal';
+    m.innerHTML = `
+      <div class="modal-box" role="dialog" aria-modal="true">
+        <p>${esc(message)}</p>
+        <div class="modal-actions">
+          <button class="btn ghost" data-m="0">Cancelar</button>
+          <button class="btn danger-solid" data-m="1">${esc(okLabel)}</button>
+        </div>
+      </div>`;
+    m.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      const b = ev.target.closest('[data-m]');
+      if (!b && ev.target !== m) return;
+      m.remove();
+      resolve(b?.dataset.m === '1');
+    });
+    document.body.appendChild(m);
+  });
+}
+
+function confirmThen(message, okLabel, fn) {
+  ask(message, okLabel).then((ok) => {
+    if (!ok) return;
+    fn();
+    save();
+    render();
+  });
+}
+
 function startWorkout(routine) {
   state.active = {
     routineId: routine?.id || null,
@@ -539,10 +573,10 @@ function startWorkout(routine) {
   render();
 }
 
-function finishWorkout() {
+async function finishWorkout() {
   const a = state.active;
   if (!doneSets(a)) {
-    if (!confirm('No has marcado ninguna serie como hecha. ¿Terminar igualmente sin guardar?')) return;
+    if (!(await ask('No has marcado ninguna serie como hecha. ¿Terminar igualmente sin guardar?', 'Terminar'))) return;
     state.active = null;
   } else {
     state.sessions.push({
@@ -615,10 +649,11 @@ document.addEventListener('click', (ev) => {
     case 'add-ex': routine.exercises.push({ name: '', sets: 3, reps: 10, weight: '' }); break;
     case 'del-ex': routine.exercises.splice(i, 1); break;
     case 'del-routine':
-      if (!confirm('¿Borrar esta rutina? Tus entrenos guardados no se borran.')) return;
-      state.routines = state.routines.filter((r) => r.id !== subview.id);
-      subview = null;
-      break;
+      confirmThen('¿Borrar esta rutina? Tus entrenos guardados no se borran.', 'Borrar', () => {
+        state.routines = state.routines.filter((r) => r.id !== subview.id);
+        subview = null;
+      });
+      return;
     case 'start': startWorkout(state.routines.find((r) => r.id === id)); return;
     case 'start-empty': startWorkout(null); return;
     case 'toggle-set': {
@@ -638,10 +673,11 @@ document.addEventListener('click', (ev) => {
     case 'w-del-ex': a.exercises.splice(ei, 1); break;
     case 'finish': finishWorkout(); return;
     case 'cancel':
-      if (!confirm('¿Descartar este entreno? No se guardará nada.')) return;
-      state.active = null;
-      stopRest();
-      break;
+      confirmThen('¿Descartar este entreno? No se guardará nada.', 'Descartar', () => {
+        state.active = null;
+        stopRest();
+      });
+      return;
     case 'rest-add': restEnd += 15000; updateRest(); return;
     case 'rest-skip': stopRest(); return;
     case 'open-session': subview = { type: 'session', id }; break;
@@ -709,10 +745,11 @@ document.addEventListener('click', (ev) => {
     }
     case 'plan-save': subview = null; tab = 'hoy'; window.scrollTo(0, 0); break;
     case 'del-session':
-      if (!confirm('¿Borrar este entreno del historial?')) return;
-      state.sessions = state.sessions.filter((s) => s.id !== subview.id);
-      subview = null;
-      break;
+      confirmThen('¿Borrar este entreno del historial?', 'Borrar', () => {
+        state.sessions = state.sessions.filter((s) => s.id !== subview.id);
+        subview = null;
+      });
+      return;
     default: return;
   }
   save();
