@@ -227,7 +227,7 @@ function planExList(exercises, d) {
     <button class="btn plain small" data-action="plan-add" data-d="${d}">+ Añadir ejercicio</button>`;
 }
 
-const openDays = new Set(); // días de «Esta semana» desplegados
+const openDays = new Set(); // tarjetas desplegadas («d0» = lunes, «r…» = rutina)
 
 function renderPlanToday() {
   const week = planWeek();
@@ -266,14 +266,55 @@ function renderPlanToday() {
           </div>
           ${d.exercises.length ? `<button class="btn small ghost" data-action="plan-start" data-d="${d.day}">Empezar</button>` : ''}
         </div>
-        <details class="plan-more" data-day="${d.day}" ${openDays.has(d.day) ? 'open' : ''}>
+        <details class="plan-more" data-open-key="d${d.day}" ${openDays.has(`d${d.day}`) ? 'open' : ''}>
           <summary>Ver ${d.exercises.length} ejercicio${d.exercises.length === 1 ? '' : 's'}</summary>
           ${planExList(d.exercises, d.day)}
         </details>
       </div>`).join('');
   }
   html += `<button class="btn plain block" data-action="plan-edit">Cambiar mi plan semanal</button>`;
+  html += renderOtherRoutines();
   return html;
+}
+
+// Rutinas creadas en la pestaña Rutinas, con el mismo aspecto que los días.
+function renderOtherRoutines() {
+  const list = state.routines;
+  return `
+    <div class="section-title">Otras rutinas</div>
+    ${list.length ? list.map((r) => {
+      const n = r.exercises.length;
+      return `
+      <div class="card">
+        <div class="row between">
+          <div class="grow">
+            <h3>${esc(r.name)}</h3>
+            <div class="muted">${n ? `${n} ejercicio${n === 1 ? '' : 's'}` : 'Sin ejercicios todavía'}</div>
+          </div>
+          <button class="btn small ghost" data-action="start" data-id="${r.id}">Empezar</button>
+        </div>
+        ${n ? `
+        <details class="plan-more" data-open-key="r${r.id}" ${openDays.has(`r${r.id}`) ? 'open' : ''}>
+          <summary>Ver ${n} ejercicio${n === 1 ? '' : 's'}</summary>
+          <div class="plan-ex">${r.exercises.map((e) => {
+            const ej = ejercicioPorNombre(e.name);
+            return `
+            <div class="plan-ex-row">
+              ${ej ? `<button class="plan-ex-open" data-action="open-exercise" data-id="${ej.id}">
+                <span class="ex-img thumb"><img src="${imgSrc(ej)}" alt=""></span>
+                <span class="grow">${esc(e.name)}</span>
+              </button>` : `<span class="plan-ex-open"><span class="grow">${esc(e.name)}</span></span>`}
+              <span class="muted" style="flex:none">${esc(e.sets)} × ${esc(e.reps)}</span>
+            </div>`;
+          }).join('')}</div>
+        </details>` : ''}
+      </div>`;
+    }).join('') : `
+      <div class="card">
+        <p class="muted" style="margin:0 0 10px">Las rutinas que crees en la pestaña Rutinas aparecerán aquí.</p>
+        <button class="btn small" data-action="new-routine">Crear rutina</button>
+      </div>`}
+  `;
 }
 
 function renderPlanEditor() {
@@ -345,7 +386,6 @@ function render() {
   if (subview?.type === 'exercise') return renderExerciseDetail();
   if (subview?.type === 'plan') return renderPlanEditor();
   if (subview?.type === 'plan-pick') return renderPlanPicker();
-  if (subview?.type === 'free') return renderFreeChooser();
   if (tab === 'hoy') return renderHome();
   if (tab === 'rutinas') return renderRoutines();
   if (tab === 'ejercicios') return renderLibrary();
@@ -462,31 +502,7 @@ function renderHome() {
         <p>Todavía no tienes rutinas.<br>Crea la primera para empezar a entrenar.</p>
         <button class="btn" data-action="new-routine">Crear rutina</button>
       </div>`}`}
-    <button class="btn ghost block" data-action="start-empty">Otras rutinas</button>
-  `;
-}
-
-// Al pulsar «Otras rutinas»: elegir una de las rutinas creadas en la pestaña Rutinas.
-function renderFreeChooser() {
-  title.textContent = 'Otras rutinas';
-  const list = state.routines;
-  view.innerHTML = `
-    <button class="btn plain back" data-action="close-sub">‹ Volver</button>
-    <div class="section-title">Tus rutinas</div>
-    ${list.length ? '' : `
-      <div class="card empty">
-        <p>Todavía no has creado ninguna rutina.<br>Créala en la pestaña Rutinas y aparecerá aquí.</p>
-        <button class="btn" data-action="new-routine">Crear rutina</button>
-      </div>`}
-    ${list.map((r) => `
-      <div class="card row between">
-        <div class="grow">
-          <h3>${esc(r.name)}</h3>
-          <div class="muted">${r.exercises.map((e) => esc(e.name)).join(' · ') || 'Sin ejercicios todavía'}</div>
-        </div>
-        <button class="btn" data-action="start" data-id="${r.id}">Empezar</button>
-      </div>`).join('')}
-    <button class="btn plain block" data-action="start-blank" style="margin-top:8px">Entrenar sin rutina</button>
+    <button class="btn plain block" data-action="start-blank" style="margin-top:4px">Entrenar sin rutina</button>
   `;
 }
 
@@ -754,7 +770,6 @@ document.addEventListener('click', (ev) => {
       });
       return;
     case 'start': startWorkout(state.routines.find((r) => r.id === id)); return;
-    case 'start-empty': subview = { type: 'free' }; window.scrollTo(0, 0); break;
     case 'start-blank': startWorkout(null); return;
     case 'toggle-set': {
       const s = a.exercises[ei].sets[si];
@@ -877,9 +892,9 @@ document.addEventListener('click', (ev) => {
 });
 
 document.addEventListener('toggle', (ev) => {
-  const day = ev.target.dataset?.day;
-  if (day === undefined) return;
-  if (ev.target.open) openDays.add(Number(day)); else openDays.delete(Number(day));
+  const key = ev.target.dataset?.openKey;
+  if (!key) return;
+  if (ev.target.open) openDays.add(key); else openDays.delete(key);
 }, true);
 
 // Guardar lo que se escribe sin volver a pintar la pantalla (para no perder el foco).
